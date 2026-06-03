@@ -381,9 +381,9 @@ sudo apt install -y python3 python3-venv git tmux
 拉取项目：
 
 ```bash
-git clone 仓库地址
+git clone https://github.com/lacunes/Chat-EngineeringOOO.git
 
-cd 仓库
+cd Chat-EngineeringOOO
 ```
 
 创建环境：
@@ -421,17 +421,12 @@ python main.py
 
 # 🗺 Roadmap
 
-当前完成：
-
 * [x] Telegram Bot
 * [x] 多世界系统
 * [x] 短期记忆
 * [x] 长期记忆
 * [x] 自动记忆抽取
 * [x] GitHub 同步
-
-计划开发：
-
 * [ ] NPC 主动行为系统
 * [ ] 世界状态数据库
 * [ ] 多角色同时对话
@@ -443,4 +438,4 @@ python main.py
 
 # 📜 License
 
-仅供学习与个人研究使用。
+个人研究使用。
