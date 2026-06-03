@@ -46,7 +46,6 @@ project/
 └── .env.example
 ```
 
-`memory/` 会自动生成，已经被 `.gitignore` 忽略，不会提交到 GitHub。
 
 ## VPS 部署步骤
 
