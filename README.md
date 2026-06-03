@@ -209,7 +209,7 @@ sudo apt install -y python3 python3-venv git tmux
 
 git clone https://github.com/lacunes/Chat-EngineeringOOO.git
 
-cd 你的仓库
+cd Chat-EngineeringOOO
 
 python3 -m venv venv
 source venv/bin/activate
