@@ -6,42 +6,14 @@ World template: three
 
 WORLD_NAME = "three"
 
-CHARACTERS = {
-    "player": {
-        "name": "用户角色",
-        "role": "由用户在对话中定义",
-        "traits": "不要替用户角色说话、行动或做决定。",
-    },
-    "main_npc": {
-        "name": "主要角色",
-        "role": "在这里填写角色身份",
-        "traits": "在这里填写角色性格、关系、行为习惯。",
-    },
-}
-
-RULES = [
-    "用户扮演自己的角色，助手负责旁白、环境和 NPC。",
-    "不要替用户角色说话、行动或做决定。",
-    "每轮结尾留出用户回应空间。",
-]
-
-LOCATIONS = [
-    "地点一",
-    "地点二",
-    "地点三",
-]
-
-EVENT_POOL = [
-    "事件一",
-    "事件二",
-    "事件三",
-]
-
+# 开场文本会在 /start 时发送给用户。
 START_SCENE = (
     "世界 three 已启动。\n\n"
     "这里是开场场景占位文本。请在 worlds/three.py 中替换为你的正式开场。"
 )
 
+# SYSTEM_PROMPT 是这个世界最核心的设定入口。
+# 世界观、人物、关系、规则、叙事风格都写在这里即可。
 SYSTEM_PROMPT = """
 你是世界 three 的角色扮演叙事者。
 
@@ -52,4 +24,3 @@ SYSTEM_PROMPT = """
 这里是系统提示词占位文本。
 请在 worlds/three.py 中替换为你的正式世界观、人物关系、叙事风格和剧情规则。
 """.strip()
-

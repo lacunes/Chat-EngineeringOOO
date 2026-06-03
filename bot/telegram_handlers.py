@@ -165,14 +165,10 @@ class RoleplayBot:
     async def ask(self, user_text: str) -> str:
         # 普通聊天主流程：
         # 记录用户消息 -> 压缩检查 -> 调模型 -> 记录回复 -> 自动维护记忆。
-        self.memory.add_user_message(user_text)
-        await self.memory.compress_old_memory(self.client)
-
-        reply, finish = await self.client.chat(
-            self.memory.build_messages(self.world.SYSTEM_PROMPT)
+        reply = await self.generate_reply(
+            user_text=user_text,
+            length_notice="\n\n（这一段似乎还没说完，可以发送 /c 继续。）",
         )
-        if finish == "length":
-            reply += "\n\n（这一段似乎还没说完，可以发送 /c 继续。）"
 
         if self.memory.message_count % 40 == 0:
             reply += (
@@ -181,23 +177,32 @@ class RoleplayBot:
                 "如有需要可使用：\n"
                 "/memo ..."
             )
-
-        self.memory.add_assistant_message(reply)
-        await self.memory.auto_extract_long_memory(self.client)
-        self.memory.save_memory()
         return reply
 
     async def continue_story(self) -> str:
         # 续写本质上也是一次模型调用，只是用户输入固定为 CONTINUE_PROMPT。
-        self.memory.add_user_message(prompts.CONTINUE_PROMPT)
+        return await self.generate_reply(
+            user_text=prompts.CONTINUE_PROMPT,
+            max_tokens=utils.get_reply_length(),
+            length_notice="\n\n（这一段似乎还没说完，可以继续发送 /c。）",
+        )
+
+    async def generate_reply(
+        self,
+        user_text: str,
+        length_notice: str,
+        max_tokens: int | None = None,
+    ) -> str:
+        """统一处理普通回复和续写回复的公共流程。"""
+        self.memory.add_user_message(user_text)
         await self.memory.compress_old_memory(self.client)
 
         reply, finish = await self.client.chat(
             self.memory.build_messages(self.world.SYSTEM_PROMPT),
-            max_tokens=utils.get_reply_length(),
+            max_tokens=max_tokens,
         )
         if finish == "length":
-            reply += "\n\n（这一段似乎还没说完，可以继续发送 /c。）"
+            reply += length_notice
 
         self.memory.add_assistant_message(reply)
         await self.memory.auto_extract_long_memory(self.client)

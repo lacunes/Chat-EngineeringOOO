@@ -80,13 +80,17 @@ def main() -> None:
     set_bot_commands()
 
     app = ApplicationBuilder().token(settings.BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", roleplay_bot.cmd_start))
-    app.add_handler(CommandHandler("reset", roleplay_bot.cmd_reset))
-    app.add_handler(CommandHandler("status", roleplay_bot.cmd_status))
-    app.add_handler(CommandHandler("memo", roleplay_bot.cmd_memo))
-    app.add_handler(CommandHandler("refinememo", roleplay_bot.cmd_refine_memo))
-    app.add_handler(CommandHandler("continue", roleplay_bot.cmd_continue))
-    app.add_handler(CommandHandler("c", roleplay_bot.cmd_continue))
+    command_handlers = [
+        ("start", roleplay_bot.cmd_start),
+        ("reset", roleplay_bot.cmd_reset),
+        ("status", roleplay_bot.cmd_status),
+        ("memo", roleplay_bot.cmd_memo),
+        ("refinememo", roleplay_bot.cmd_refine_memo),
+        ("continue", roleplay_bot.cmd_continue),
+        ("c", roleplay_bot.cmd_continue),
+    ]
+    for command, handler in command_handlers:
+        app.add_handler(CommandHandler(command, handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, roleplay_bot.handle_chat))
 
     logger.info("Roleplay Bot started with world: %s", world.WORLD_NAME)

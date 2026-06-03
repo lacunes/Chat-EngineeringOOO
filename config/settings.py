@@ -19,7 +19,7 @@ def _get_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer") from exc
 
 
-# 这些敏感配置只从 .env 读取，绝不写进代码。
+# 这些敏感配置只从 .env 读取，不写进代码。
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEEPSEEK_KEY = os.getenv("DEEPSEEK_KEY", "")
 ALLOWED_ID = _get_int("ALLOWED_ID", 0)

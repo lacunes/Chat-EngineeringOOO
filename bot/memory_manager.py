@@ -27,7 +27,6 @@ class MemoryManager:
 
         self.memory: list[dict] = []
         self.long_memory: list[str] = []
-        self.compressed_summary: str | None = None
         self.last_auto_memory_index = 0
         self.reset_confirm_users: dict[int, float] = {}
 
@@ -57,7 +56,6 @@ class MemoryManager:
     def reset(self) -> None:
         self.memory = []
         self.long_memory = []
-        self.compressed_summary = None
         self.last_auto_memory_index = 0
         self.save_memory()
         self.save_long_memory()
@@ -65,16 +63,9 @@ class MemoryManager:
     def build_messages(self, system_prompt: str) -> list:
         # 发给模型的顺序：
         # 1. 当前世界 SYSTEM_PROMPT
-        # 2. 被压缩的旧剧情摘要
-        # 3. 最近长期记忆
-        # 4. 最近短期对话
+        # 2. 最近长期记忆
+        # 3. 最近短期对话
         messages = [{"role": "system", "content": system_prompt}]
-
-        if self.compressed_summary:
-            messages.append({
-                "role": "system",
-                "content": f"[旧剧情摘要]：{self.compressed_summary}",
-            })
 
         if self.long_memory:
             recent = self.long_memory[-settings.LONG_MEMORY_CONTEXT_LIMIT:]
@@ -109,7 +100,6 @@ class MemoryManager:
             logger.warning("Memory compression failed, using fallback: %s", exc)
             summary = dialogue_text[:2000]
 
-        self.compressed_summary = summary
         if summary:
             self.add_long_memory_item(f"旧剧情摘要：{summary}")
             await self.refine_long_memory(client, force=True)
