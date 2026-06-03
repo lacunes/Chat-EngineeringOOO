@@ -34,6 +34,7 @@ class DeepSeekClient:
             "max_tokens": max_tokens if max_tokens is not None else get_reply_length(),
         }
 
+        last_error: Exception | None = None
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -52,13 +53,28 @@ class DeepSeekClient:
                 finish_reason = choice.get("finish_reason")
                 logger.info("DeepSeek API call succeeded")
                 return reply, finish_reason
-            except requests.exceptions.Timeout:
+            except requests.exceptions.Timeout as exc:
+                last_error = exc
                 logger.warning("DeepSeek API timeout (%s/%s)", attempt + 1, max_retries)
-            except Exception as exc:
-                logger.error("DeepSeek API error (%s/%s): %s", attempt + 1, max_retries, exc)
+            except requests.exceptions.ConnectionError as exc:
+                last_error = exc
+                logger.warning("DeepSeek API connection error (%s/%s)", attempt + 1, max_retries)
+            except requests.exceptions.HTTPError as exc:
+                # 4xx 客户端错误（如 401 密钥无效）不应重试，5xx 可重试。
+                last_error = exc
+                status = exc.response.status_code if exc.response is not None else 0
+                if 400 <= status < 500 and status != 429:
+                    logger.error("DeepSeek API HTTP %s — 不可重试，中止", status)
+                    break
+                logger.warning("DeepSeek API HTTP %s (%s/%s)", status, attempt + 1, max_retries)
+            except (ValueError, KeyError, TypeError) as exc:
+                # JSON 解析或响应结构异常 — 重试不会改变结果。
+                last_error = exc
+                logger.error("DeepSeek API 响应格式异常 — 不可重试，中止: %s", exc)
+                break
 
             if attempt < max_retries - 1:
                 # 简单指数退避：1s、2s 后重试。
                 await asyncio.sleep(2 ** attempt)
 
-        raise RuntimeError("无法连接到 DeepSeek API，请稍后再试。")
+        raise RuntimeError("无法连接到 DeepSeek API，请稍后再试。") from last_error

@@ -23,13 +23,19 @@ def format_dialogue(messages: list, limit: int = 6000) -> str:
     return text[:limit]
 
 
+def normalize_text(text: str) -> str:
+    """规范化单条文本：去首尾空白，折叠内部连续空白为单个空格。"""
+    return " ".join(text.strip().split())
+
+
 def normalize_memory_items(items: list) -> list:
+    """去重、去空白、去非字符串，返回干净的字符串列表。"""
     result = []
     seen = set()
     for item in items:
         if not isinstance(item, str):
             continue
-        text = " ".join(item.strip().split())
+        text = normalize_text(item)
         if not text or text in seen:
             continue
         seen.add(text)

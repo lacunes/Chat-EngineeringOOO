@@ -1,12 +1,21 @@
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 
+logger = logging.getLogger(__name__)
+
 # 项目根目录。后续所有相对路径都从这里出发，方便 VPS 部署。
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+
+_env_path = BASE_DIR / ".env"
+if not _env_path.exists():
+    # 延迟导入避免循环引用；此时 logging 还未初始化，用 print 兜底。
+    print(f"[WARNING] .env file not found at {_env_path!s}，请复制 .env.example 并填入配置。")
+
+load_dotenv(_env_path)
 
 
 def _get_int(name: str, default: int) -> int:
@@ -20,8 +29,9 @@ def _get_int(name: str, default: int) -> int:
 
 
 # 这些敏感配置只从 .env 读取，不写进代码。
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_KEY", "")
+# strip() 防止复制粘贴时带进多余空格。
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_KEY", "").strip()
 ALLOWED_ID = _get_int("ALLOWED_ID", 0)
 
 # 当前启用世界。比如 ACTIVE_WORLD=one 会加载 worlds/one.py。

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import time
+from functools import wraps
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -12,6 +13,17 @@ from config import prompts, settings
 
 
 logger = logging.getLogger(__name__)
+
+
+def require_auth(func):
+    """装饰器：自动检查用户授权，未授权则回复提示并跳过执行。"""
+    @wraps(func)
+    async def wrapper(self, update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        if not self.is_authorized(update):
+            await self.send_unauthorized(update)
+            return
+        return await func(self, update, context, *args, **kwargs)
+    return wrapper
 
 
 class RoleplayBot:
@@ -33,17 +45,13 @@ class RoleplayBot:
         if update.message:
             await update.message.reply_text("你不是我认识的人。")
 
+    @require_auth
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self.is_authorized(update):
-            await self.send_unauthorized(update)
-            return
         logger.info("User %s started world %s", update.effective_user.id, self.world.WORLD_NAME)
         await update.message.reply_text(self.world.START_SCENE)
 
+    @require_auth
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self.is_authorized(update):
-            await self.send_unauthorized(update)
-            return
         await update.message.reply_text(
             f"当前状态：\n"
             f"当前世界：{self.world.WORLD_NAME}\n"
@@ -60,12 +68,9 @@ class RoleplayBot:
             f"续写上限：/c {settings.CONTINUE_LIMIT}"
         )
 
+    @require_auth
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # /reset 有二次确认，避免误触后直接清空当前世界记忆。
-        if not self.is_authorized(update):
-            await self.send_unauthorized(update)
-            return
-
         user_id = update.effective_user.id
         now = time.time()
         last_request = self.memory.reset_confirm_users.get(user_id)
@@ -83,11 +88,8 @@ class RoleplayBot:
         logger.info("User %s reset world %s", user_id, self.world.WORLD_NAME)
         await update.message.reply_text("已确认，当前世界的短期和长期记忆均已清空。")
 
+    @require_auth
     async def cmd_memo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self.is_authorized(update):
-            await self.send_unauthorized(update)
-            return
-
         text = " ".join(context.args).strip()
         if not text:
             await update.message.reply_text("格式：\n/memo 内容")
@@ -101,11 +103,8 @@ class RoleplayBot:
         self.memory.save_long_memory()
         await update.message.reply_text("已写入当前世界的长期记忆。")
 
+    @require_auth
     async def cmd_refine_memo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self.is_authorized(update):
-            await self.send_unauthorized(update)
-            return
-
         try:
             await self.memory.refine_long_memory(self.client, force=True)
             await update.message.reply_text(f"长期记忆已精炼，目前 {self.memory.long_memory_count} 条。")
@@ -113,10 +112,8 @@ class RoleplayBot:
             logger.error("refinememo error: %s", exc, exc_info=True)
             await update.message.reply_text("长期记忆精炼失败，稍后再试。")
 
+    @require_auth
     async def handle_chat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self.is_authorized(update):
-            await self.send_unauthorized(update)
-            return
         if not update.message or not update.message.text:
             return
 
@@ -133,11 +130,8 @@ class RoleplayBot:
             logger.error("chat error: %s", exc, exc_info=True)
             await update.message.reply_text("……信号断了一下。\n\n等一下再试。")
 
+    @require_auth
     async def cmd_continue(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if not self.is_authorized(update):
-            await self.send_unauthorized(update)
-            return
-
         count = 1
         if context.args:
             try:

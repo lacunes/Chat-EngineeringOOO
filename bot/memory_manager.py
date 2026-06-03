@@ -49,7 +49,7 @@ class MemoryManager:
         self.memory.append({"role": "assistant", "content": text})
 
     def add_long_memory_item(self, text: str) -> None:
-        clean = " ".join(text.strip().split())
+        clean = utils.normalize_text(text)
         if clean and clean not in self.long_memory:
             self.long_memory.append(clean)
 
@@ -200,6 +200,8 @@ class MemoryManager:
     def _atomic_write(path: Path, data, label: str) -> None:
         # 原子写入：先写临时文件，再替换正式文件。
         # 可以降低断电、崩溃时 JSON 写坏的概率。
+        # 使用 mkstemp 拿到唯一临时文件名后立即关闭 fd，
+        # 再用常规 open 写入，避免 fdopen 失败时 fd 泄漏。
         tmp_path = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -208,7 +210,8 @@ class MemoryManager:
                 prefix=".tmp_",
                 suffix=".json",
             )
-            with os.fdopen(fd, "w", encoding="utf-8") as file:
+            os.close(fd)
+            with open(tmp_path, "w", encoding="utf-8") as file:
                 json.dump(data, file, ensure_ascii=False, indent=2)
             os.replace(tmp_path, path)
         except Exception as exc:
