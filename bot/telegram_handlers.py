@@ -9,6 +9,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from bot import utils
+from bot.npc_manager import NPCManager
 from config import prompts, settings
 
 
@@ -37,6 +38,8 @@ class RoleplayBot:
         self.world = world
         self.memory = memory
         self.client = client
+        # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
+        self.npc_manager = NPCManager(world, memory)
 
     def is_authorized(self, update: Update) -> bool:
         return bool(update.effective_user and update.effective_user.id == settings.ALLOWED_ID)
@@ -65,7 +68,8 @@ class RoleplayBot:
             f"模型：{settings.MODEL_NAME}\n"
             f"回复长度：{settings.MIN_REPLY_TOKENS}~{settings.MAX_REPLY_TOKENS}\n"
             f"分段阈值：{settings.SPLIT_THRESHOLD} 字符\n"
-            f"续写上限：/c {settings.CONTINUE_LIMIT}"
+            f"续写上限：/c {settings.CONTINUE_LIMIT}\n"
+            f"\n{self.npc_manager.get_status_text()}"
         )
 
     @require_auth
@@ -187,12 +191,28 @@ class RoleplayBot:
         length_notice: str,
         max_tokens: int | None = None,
     ) -> str:
-        """统一处理普通回复和续写回复的公共流程。"""
+        """统一处理普通回复和续写回复的公共流程。
+
+        NPC主动行为融入流程：
+        1. npc_manager.tick() —— 更新冷却计时器
+        2. npc_manager.get_stage_directions() —— 评估触发条件，生成舞台指令
+        3. 将舞台指令注入 system prompt
+        4. 模型在生成回复时自然融入NPC行为
+        """
+        # ── NPC主动行为：更新冷却、获取舞台指令 ──
+        self.npc_manager.tick()
+        stage_directions = self.npc_manager.get_stage_directions(user_text)
+
         self.memory.add_user_message(user_text)
         await self.memory.compress_old_memory(self.client)
 
+        # 构建系统提示词：如果有NPC舞台指令，附加到末尾
+        system_prompt = self.world.SYSTEM_PROMPT
+        if stage_directions:
+            system_prompt = system_prompt + "\n" + stage_directions
+
         reply, finish = await self.client.chat(
-            self.memory.build_messages(self.world.SYSTEM_PROMPT),
+            self.memory.build_messages(system_prompt),
             max_tokens=max_tokens,
         )
         if finish == "length":

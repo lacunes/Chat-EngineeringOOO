@@ -46,3 +46,19 @@ LOCATIONS: dict[str, str] = {
 EVENT_POOL: list[str] = [
     # "可能触发的随机事件描述",
 ]
+
+# ── NPC主动行为系统配置 ──
+# 定义这个世界中可主动行动的NPC。详见 worlds/one.py 中的完整注释。
+# 如果不需要NPC主动行为，设为空字典 {} 即可。
+
+NPCS: dict[str, dict] = {
+    # "npc_id": {
+    #     "name": "NPC显示名",
+    #     "description": "简要描述",
+    #     "personality": "性格特征",
+    #     "goals": ["目标1", "目标2"],
+    #     "typical_actions": ["行动方向1", "行动方向2"],
+    #     "activation_weight": 0.2,
+    #     "cooldown_messages": 15,
+    # },
+}

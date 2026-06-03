@@ -21,6 +21,7 @@
 * 历史对话摘要压缩
 * 自动续写
 * 长回复自动分段
+* NPC主动行为系统
 * GitHub 版本管理
 * VPS 快速迁移
 
@@ -29,35 +30,18 @@
 # 🏗 架构设计
 
 ```text
-用户
+用户 ──→ Telegram ──→ telegram_handlers.py ──→ deepseek_client.py ──→ DeepSeek API
+ │                         │                                              │
+ │                    npc_manager.py                                      │
+ │                    (NPC主动行为)                                        │
+ │                         │                                              │
+ │                    memory_manager.py ←─────────────────────────────────┘
+ │                         │
+ │                    ┌────┴────┐
+ │                    │         │
+ │                 短期记忆  长期记忆
  │
- ▼
-Telegram
- │
- ▼
-telegram_handlers.py
- │
- ▼
-deepseek_client.py
- │
- ▼
-DeepSeek API
- │
- ▼
-生成回复
-
-       ▲
-       │
-memory_manager.py
-       │
-       ▼
-
-短期记忆
-长期记忆
-
-       ▲
-       │
-worlds/*.py
+ └──────────────── worlds/*.py (世界观/NPC/规则)
 ```
 
 ---
@@ -72,6 +56,7 @@ project/
 │   ├── telegram_handlers.py
 │   ├── deepseek_client.py
 │   ├── memory_manager.py
+│   ├── npc_manager.py
 │   └── utils.py
 │
 ├── config/
@@ -162,6 +147,72 @@ memory/one_world_memory.json
 ```
 
 长期记忆会自动参与后续生成。
+
+---
+
+# 🎭 NPC主动行为系统
+
+NPC不再只是被动响应用户——他们有**自己的行为规律**，会在合适的时机主动进入故事。
+
+## 工作原理
+
+```
+用户发消息
+  │
+  ├─ 1. npc_manager 检查冷却 + 概率判断
+  │     触发条件: NPC权重 × 全局基础概率
+  │
+  ├─ 2. 为触发的NPC生成"舞台指令"
+  │     例如: "【旅馆老板】性格热情。可采取的行动: 端茶、搭话..."
+  │
+  ├─ 3. 舞台指令注入 system prompt
+  │
+  └─ 4. AI在回复中自然融入NPC行为
+         "谈话间，旅馆老板端着一壶热茶走了过来..."
+```
+
+**关键特性**:
+- 💰 **零额外API成本** —— NPC行为由主模型在一次回复中生成
+- 🎛️ **可控频率** —— 权重 + 全局概率 + 冷却三重控制
+- 🔌 **即插即用** —— 世界文件定义NPC，无需修改主程序
+- ⏱️ **双重触发** —— 用户消息驱动 + 后台定时器
+
+## 定义NPC
+
+在 `worlds/one.py` 的 `NPCS` 字典中配置：
+
+```python
+NPCS: dict[str, dict] = {
+    "innkeeper": {
+        "name": "旅馆老板老张",
+        "description": "镇上唯一旅馆的老板",
+        "personality": "热情、健谈、爱打听消息",
+        "goals": ["让客人住得舒服", "打听镇上新鲜事"],
+        "typical_actions": [
+            "主动和客人搭话",
+            "端来热茶招待客人",
+            "分享镇上小道消息",
+        ],
+        "activation_weight": 0.35,     # 触发权重 (0~1)
+        "cooldown_messages": 10,        # 冷却消息数
+    },
+}
+```
+
+**触发概率** = NPC权重 × `NPC_BASE_ACTIVATION` (`.env` 中设置，默认 0.5)
+
+例如: `0.35 × 0.5 = 17.5%` 概率每次用户消息触发该NPC。
+
+## 配置参数
+
+在 `.env` 中调整：
+
+```env
+NPC_BASE_ACTIVATION=0.5       # 全局基础概率 (0~1)，0=完全禁用
+NPC_MAX_ACTIONS_PER_CHECK=1   # 单次最多触发几个NPC
+NPC_TIMER_INTERVAL=300        # 后台定时器间隔（秒）
+NPC_ACTION_MAX_TOKENS=200     # 舞台指令最大token
+```
 
 ---
 
@@ -372,7 +423,7 @@ python main.py
 * [x] 长期记忆
 * [x] 自动记忆抽取
 * [x] GitHub 同步
-* [ ] NPC 主动行为系统
+* [x] NPC 主动行为系统
 * [ ] 世界状态数据库
 * [ ] 多角色同时对话
 * [ ] 自动事件系统

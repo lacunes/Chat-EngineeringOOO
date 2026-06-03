@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 
@@ -92,6 +93,26 @@ def main() -> None:
     for command, handler in command_handlers:
         app.add_handler(CommandHandler(command, handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, roleplay_bot.handle_chat))
+
+    # ── NPC主动行为系统：后台定时器 ──
+    # 定期检查是否有NPC应该主动行动。
+    # 定时器触发的行为不会立即发送，而是暂存到队列中，
+    # 等到用户下次发送消息时一并融入叙事回复。
+    async def npc_timer_loop() -> None:
+        """NPC后台定时检查协程。"""
+        # 启动后等待60秒，让系统完成初始化
+        await asyncio.sleep(60)
+        logger.info("NPC timer loop started (interval: %s seconds)", settings.NPC_TIMER_INTERVAL)
+        while True:
+            try:
+                roleplay_bot.npc_manager.check_timer_triggers()
+            except Exception as exc:
+                logger.error("NPC timer loop error: %s", exc, exc_info=True)
+            await asyncio.sleep(settings.NPC_TIMER_INTERVAL)
+
+    # 将NPC定时器注册到事件循环中（run_polling 会接管事件循环）
+    loop = asyncio.get_event_loop()
+    loop.create_task(npc_timer_loop())
 
     logger.info("Roleplay Bot started with world: %s", world.WORLD_NAME)
     app.run_polling()

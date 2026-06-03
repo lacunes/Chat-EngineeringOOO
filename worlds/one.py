@@ -46,3 +46,50 @@ LOCATIONS: dict[str, str] = {
 EVENT_POOL: list[str] = [
     # "可能触发的随机事件描述",
 ]
+
+# ── NPC主动行为系统配置 ──
+# 定义这个世界中可主动行动的NPC。
+# 每个NPC的配置字段说明：
+#   name                  - 显示名称（用于舞台指令中标识NPC）
+#   description           - 简要描述（告知模型这个NPC是谁）
+#   personality           - 性格特征（决定NPC的行为风格）
+#   goals                 - 当前目标（NPC想要达成的短期目标，可选）
+#   typical_actions       - 典型行动列表（模型会从中获取行动方向灵感）
+#   activation_weight     - 触发权重（0~1，越高越容易被触发）
+#   cooldown_messages     - 冷却消息数（触发后至少间隔N条消息才能再次触发）
+#
+# 触发概率公式：NPC权重 × 全局基础概率(NPC_BASE_ACTIVATION)
+# 例如：0.3 × 0.5 = 每次消息有 15% 概率触发该NPC
+# 如果不想要NPC主动行为系统，将 NPCS 设为空字典 {} 即可。
+
+NPCS: dict[str, dict] = {
+    # 示例NPC 1：旅馆老板 —— 高概率、短冷却，适合频繁互动
+    # "innkeeper": {
+    #     "name": "旅馆老板老张",
+    #     "description": "镇上唯一旅馆的老板，和蔼的中年男人",
+    #     "personality": "热情、健谈、爱打听镇上新鲜事",
+    #     "goals": ["让客人住得舒服", "打听镇上最新消息"],
+    #     "typical_actions": [
+    #         "主动和客人搭话，询问是否需要帮助",
+    #         "端来热茶或食物招待客人",
+    #         "分享镇上最近发生的小道消息",
+    #         "和其他NPC打招呼并闲聊",
+    #     ],
+    #     "activation_weight": 0.35,
+    #     "cooldown_messages": 10,
+    # },
+    # 示例NPC 2：神秘旅人 —— 低概率、长冷却，适合偶尔推进剧情
+    # "mysterious_stranger": {
+    #     "name": "神秘旅人",
+    #     "description": "角落里的斗篷人，看起来不属于这个小镇",
+    #     "personality": "沉默寡言、警觉、似乎藏着秘密",
+    #     "goals": ["寻找某样东西", "避开追踪"],
+    #     "typical_actions": [
+    #         "悄悄观察周围环境和行人",
+    #         "在关键时刻递出一张纸条或一句警告",
+    #         "突然出现在意想不到的地方",
+    #     ],
+    #     "activation_weight": 0.1,
+    #     "cooldown_messages": 30,
+    # },
+}

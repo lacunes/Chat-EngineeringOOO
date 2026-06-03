@@ -67,5 +67,17 @@ LONG_MEMORY_REFINE_BUFFER = _get_int("LONG_MEMORY_REFINE_BUFFER", 4)
 
 RESET_CONFIRM_SECONDS = _get_int("RESET_CONFIRM_SECONDS", 30)
 
+# ── NPC主动行为系统配置 ──
+# NPC_BASE_ACTIVATION: 全局基础激活概率（0~1），作用于所有NPC的权重。
+#   例如 NPC 权重 0.3 × 全局 0.5 = 每次消息 15% 实际触发概率。
+#   调高 → NPC更活跃；调低 → NPC更沉默。设为 0 可完全禁用NPC主动行为。
+NPC_BASE_ACTIVATION = float(os.getenv("NPC_BASE_ACTIVATION", "0.5"))
+# NPC_MAX_ACTIONS_PER_CHECK: 单次检查最多触发几个NPC（防止多个NPC同时行动造成混乱）
+NPC_MAX_ACTIONS_PER_CHECK = _get_int("NPC_MAX_ACTIONS_PER_CHECK", 1)
+# NPC_TIMER_INTERVAL: 后台定时器检查间隔（秒），用于时间驱动的NPC行为
+NPC_TIMER_INTERVAL = _get_int("NPC_TIMER_INTERVAL", 300)
+# NPC_ACTION_MAX_TOKENS: NPC行为舞台指令的最大token数（实际使用时截断）
+NPC_ACTION_MAX_TOKENS = _get_int("NPC_ACTION_MAX_TOKENS", 200)
+
 LOG_FILE = BASE_DIR / "bot.log"
 MEMORY_DIR = BASE_DIR / "memory"
