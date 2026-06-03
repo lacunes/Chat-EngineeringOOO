@@ -235,7 +235,7 @@ tmux new -s roleplay
 启动：
 
 ```bash
-cd 项目目录
+cd Chat-EngineeringOOO
 
 source venv/bin/activate
 
