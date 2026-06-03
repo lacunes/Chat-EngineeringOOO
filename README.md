@@ -265,31 +265,6 @@ tmux attach -t roleplay
 Ctrl+C
 ```
 
----
-
-# 🔄 GitHub 工作流
-
-提交修改：
-
-```bash
-git add .
-
-git commit -m "update"
-
-git push
-```
-
-服务器同步：
-
-```bash
-git pull
-```
-
-如果依赖更新：
-
-```bash
-pip install -r requirements.txt
-```
 
 ---
 
@@ -387,4 +362,51 @@ nano .env
 python main.py
 ```
 
-如需迁移记忆，把旧 VPS 的 `memory/` 复制到新 VPS 项目目录即可。
+---
+
+# 🗺 Roadmap
+
+* [x] Telegram Bot
+* [x] 多世界系统
+* [x] 短期记忆
+* [x] 长期记忆
+* [x] 自动记忆抽取
+* [x] GitHub 同步
+* [ ] NPC 主动行为系统
+* [ ] 世界状态数据库
+* [ ] 多角色同时对话
+* [ ] 自动事件系统
+* [ ] 关系网络系统
+* [ ] Web 管理面板
+
+---
+
+# 📜 License
+
+个人研究使用。
+---
+
+# 🔄 GitHub 工作流
+
+提交修改：
+
+```bash
+git add .
+
+git commit -m "update"
+
+git push
+```
+
+服务器同步：
+
+```bash
+git pull
+```
+
+依赖更新：
+
+```bash
+pip install -r requirements.txt
+```
+
