@@ -60,19 +60,6 @@ memory_manager.py
 worlds/*.py
 ```
 
-设计原则：
-
-* 世界观独立
-* 记忆独立
-* 配置独立
-* 核心逻辑独立
-
-因此：
-
-```text
-改剧情 ≠ 改代码
-```
-
 ---
 
 # 📁 项目结构
@@ -131,16 +118,6 @@ worlds/
 * RULES
 * LOCATIONS
 * EVENT_POOL
-
-因此：
-
-```text
-修改剧情
-↓
-只改 worlds/*.py
-
-无需修改主程序
-```
 
 ---
 
@@ -230,7 +207,7 @@ Ubuntu 示例：
 sudo apt update
 sudo apt install -y python3 python3-venv git tmux
 
-git clone https://github.com/你的用户名/你的仓库.git
+git clone https://github.com/lacunes/Chat-EngineeringOOO.git
 
 cd 你的仓库
 
