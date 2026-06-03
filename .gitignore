@@ -1,0 +1,16 @@
+.env
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+memory/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.idea/
+.vscode/
+
