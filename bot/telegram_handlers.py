@@ -168,7 +168,8 @@ class RoleplayBot:
             length_notice="\n\n（这一段似乎还没说完，可以发送 /c 继续。）",
         )
 
-        if self.memory.message_count % 40 == 0:
+        # 每隔 MEMO_REMINDER_INTERVAL 条消息提示一次用户手动记录长期记忆
+        if self.memory.message_count % settings.MEMO_REMINDER_INTERVAL == 0:
             reply += (
                 "\n\n【记忆提醒】\n"
                 "最近剧情可能出现重要关系变化。\n"
@@ -206,10 +207,16 @@ class RoleplayBot:
         self.memory.add_user_message(user_text)
         await self.memory.compress_old_memory(self.client)
 
-        # 构建系统提示词：如果有NPC舞台指令，附加到末尾
+        # 构建系统提示词：如果有NPC舞台指令，先注入处理指令再附舞台指令
         system_prompt = self.world.SYSTEM_PROMPT
         if stage_directions:
-            system_prompt = system_prompt + "\n" + stage_directions
+            system_prompt = (
+                system_prompt
+                + "\n"
+                + prompts.NPC_STAGE_DIRECTION_INSTRUCTION
+                + "\n"
+                + stage_directions
+            )
 
         reply, finish = await self.client.chat(
             self.memory.build_messages(system_prompt),

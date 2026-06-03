@@ -21,7 +21,25 @@ class DeepSeekClient:
         self.api_key = api_key
         self.model_name = model_name
 
-    async def chat(self, messages: list, max_tokens: int = None) -> tuple[str, str]:
+    async def chat(
+        self,
+        messages: list,
+        max_tokens: int = None,
+        temperature: float = 0.85,
+    ) -> tuple[str, str]:
+        """调用 DeepSeek API 进行对话补全。
+
+        Args:
+            messages: OpenAI 格式的消息列表 [{"role": ..., "content": ...}, ...]
+            max_tokens: 最大生成 token 数，None 时使用随机长度（见 get_reply_length）
+            temperature: 生成温度（0~2）。
+                0.85 (默认): 角色扮演的甜点温度 —— 有足够创意又不会胡言乱语
+                0.3~0.5: 适合记忆精炼、摘要等需要稳定输出的场景
+                1.0+: 适合需要更多随机性和创意的场景
+
+        Returns:
+            (reply_text, finish_reason) — reply_text 已 strip
+        """
         # DeepSeek 的接口与 OpenAI Chat Completions 格式类似。
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -30,7 +48,7 @@ class DeepSeekClient:
         payload = {
             "model": self.model_name,
             "messages": messages,
-            "temperature": 0.85,
+            "temperature": temperature,
             "max_tokens": max_tokens if max_tokens is not None else get_reply_length(),
         }
 

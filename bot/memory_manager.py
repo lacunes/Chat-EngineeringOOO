@@ -94,6 +94,7 @@ class MemoryManager:
                     {"role": "user", "content": f"请压缩以下对话：\n\n{dialogue_text[:6000]}"},
                 ],
                 max_tokens=400,
+                temperature=0.4,  # 摘要需要稳定准确，用较低温度
             )
             logger.info("Compressed old memory through DeepSeek")
         except Exception as exc:
@@ -126,6 +127,7 @@ class MemoryManager:
                     {"role": "user", "content": f"最近对话：\n\n{dialogue}"},
                 ],
                 max_tokens=500,
+                temperature=0.35,  # 抽取事实需要精确，温度低减少幻觉
             )
             new_items = utils.parse_memory_json(extracted_text)
             for item in new_items:
@@ -156,6 +158,7 @@ class MemoryManager:
                     {"role": "user", "content": json.dumps(self.long_memory, ensure_ascii=False)},
                 ],
                 max_tokens=900,
+                temperature=0.35,  # 精炼需要准确合并去重，温度低减少偏差
             )
             refined = utils.parse_memory_json(refined_text)
             if refined:
