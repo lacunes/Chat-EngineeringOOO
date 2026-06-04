@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 
 from bot import utils
 from bot.npc_manager import NPCManager
+from bot.relationship_manager import RelationshipManager
 from config import prompts, settings
 
 
@@ -34,10 +35,11 @@ class RoleplayBot:
     世界观来自 worlds/*.py，记忆由 MemoryManager 管理，模型调用由 DeepSeekClient 管理。
     """
 
-    def __init__(self, world, memory, client):
+    def __init__(self, world, memory, client, relationship_manager):
         self.world = world
         self.memory = memory
         self.client = client
+        self.relationship_manager = relationship_manager
         # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
         self.npc_manager = NPCManager(world, memory)
         # 防止后台记忆维护任务堆积
@@ -117,6 +119,20 @@ class RoleplayBot:
         except Exception as exc:
             logger.error("refinememo error: %s", exc, exc_info=True)
             await update.message.reply_text("长期记忆精炼失败，稍后再试。")
+
+    @require_auth
+    async def cmd_relations(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """显示当前世界角色关系摘要。"""
+        await update.message.reply_text(
+            self.relationship_manager.get_status_text()
+        )
+
+    @require_auth
+    async def cmd_relation_full(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """显示完整关系网络。"""
+        text = self.relationship_manager.get_full_text()
+        for part in utils.split_reply(text):
+            await update.message.reply_text(part)
 
     @require_auth
     async def handle_chat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -216,6 +232,11 @@ class RoleplayBot:
                 + stage_directions
             )
 
+        # ── 注入关系网络摘要 ──
+        relation_summary = self.relationship_manager.get_summary()
+        if relation_summary:
+            system_prompt = system_prompt + relation_summary
+
         # ── 主 API 调用（关键路径，不阻塞）──
         reply, finish = await self.client.chat(
             self.memory.build_messages(system_prompt),
@@ -225,15 +246,21 @@ class RoleplayBot:
             reply += length_notice
 
         self.memory.add_assistant_message(reply)
+        self.relationship_manager.on_assistant_reply()
         self.memory.save_memory()
 
-        # ── 后台记忆维护（不阻塞回复）──
+        # ── 后台记忆维护 + 关系抽取（不阻塞回复）──
         self._schedule_background_maintenance()
+
+        # ── 上轮关系变化提示（加在回复开头）──
+        pending = self.relationship_manager.take_pending_hints()
+        if pending:
+            reply = "（" + "；".join(pending) + "）\n\n" + reply
 
         return reply
 
     def _schedule_background_maintenance(self) -> None:
-        """调度后台记忆压缩和抽取，防止任务堆积。"""
+        """调度后台记忆压缩、长期记忆抽取、关系网络抽取。"""
         if self._bg_maintenance_running:
             return
 
@@ -242,6 +269,9 @@ class RoleplayBot:
             try:
                 await self.memory.compress_old_memory(self.client)
                 await self.memory.auto_extract_long_memory(self.client)
+                await self.relationship_manager.auto_extract(
+                    self.memory.memory, self.client,
+                )
             except Exception as exc:
                 logger.warning("Background maintenance failed: %s", exc)
             finally:

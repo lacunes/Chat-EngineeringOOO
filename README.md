@@ -465,6 +465,54 @@ http://你的VPS_IP:8080
 
 ---
 
+# 💞 关系网络系统
+
+追踪角色之间的关系数值变化，为长期剧情提供结构化支撑。
+
+## 工作原理
+
+```
+用户消息 → AI 回复 → 后台每 2 轮抽取关系变化
+                         │
+                         ├─ 轻量 DeepSeek API 分析对话
+                         ├─ JSON 输出变化量 (±1~3，重大事件可超出)
+                         └─ 下一条回复开头显示: （林栖→陈平：信任+2）
+```
+
+## 数据结构（memory/one_relationships.json）
+
+```json
+{
+  "characters": ["林栖", "陈平"],
+  "relations": {
+    "林栖->陈平": {
+      "affection": 65, "trust": 68, "fear": 10,
+      "dependence": 42, "suspicion": 15, "hostility": 5,
+      "notes": ["初次见面时救过对方"],
+      "last_updated": 42
+    }
+  }
+}
+```
+
+六个维度（0-100）：好感、信任、畏惧、依赖、怀疑、敌意。非对称关系。
+
+## Telegram 命令
+
+| 命令 | 说明 |
+|------|------|
+| `/relations` | 显示当前世界角色关系摘要 |
+| `/relation_full` | 显示完整关系网络（含备注、历史轮次） |
+
+## 配置
+
+```env
+RELATION_EXTRACT_INTERVAL=2       # 每 N 次 AI 回复触发抽取
+RELATION_SIGNIFICANT_THRESHOLD=3  # 变化超过此值标记 ⚡
+```
+
+---
+
 # 🗺 Roadmap
 
 * [x] Telegram Bot
@@ -477,7 +525,7 @@ http://你的VPS_IP:8080
 * [ ] 世界状态数据库
 * [ ] 多角色同时对话
 * [ ] 自动事件系统
-* [ ] 关系网络系统
+* [x] 关系网络系统
 * [x] Web 管理面板
 
 ---

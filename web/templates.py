@@ -65,6 +65,7 @@ def base(title: str, body: str, refresh_sec: int = 0) -> str:
   <a href="/memory"{' class="active"' if title.startswith("短期") else ""}>💬 短期记忆</a>
   <a href="/memory/long"{' class="active"' if title.startswith("长期") else ""}>🧠 长期记忆</a>
   <a href="/worlds"{' class="active"' if title.startswith("世界") else ""}>🌍 世界</a>
+  <a href="/relations"{' class="active"' if title.startswith("关系") else ""}>💞 关系</a>
   <a href="/logs"{' class="active"' if title.startswith("日志") else ""}>📜 日志</a>
 </div>
 <div class="container">
@@ -299,4 +300,37 @@ def world_editor(name: str, content: str, file_path: str, error: str = "") -> st
 </div>
 """
     return base(f"世界编辑 - {name}", body)
+
+
+# ── 关系网络 ────────────────────────────────────────
+
+def relations_page(world_name: str, json_text: str, error: str = "") -> str:
+    """关系网络查看/编辑页。以 JSON 文本形式编辑。"""
+    lines = json_text.count("\n") + 1
+    error_html = f'<div class="flash flash-error">{error}</div>' if error else ""
+
+    body = f"""
+<h1>💞 关系网络: {world_name}</h1>
+<p style="margin-bottom:12px;color:#888;">文件: memory/{world_name}_relationships.json（{lines} 行）。直接编辑 JSON 保存即可。</p>
+{error_html}
+
+<div class="card">
+  <h2>维度说明</h2>
+  <p style="font-size:13px;color:#555;">
+  affection=好感 | trust=信任 | fear=畏惧 | dependence=依赖 | suspicion=怀疑 | hostility=敌意<br>
+  范围 0-100，"角色A->角色B" 为非对称关系键名
+  </p>
+</div>
+
+<div class="card">
+  <form method="post" action="/relations">
+    <textarea name="content" style="min-height:400px;font-family:'Cascadia Code','Fira Code',monospace;font-size:13px;">{json_text}</textarea>
+    <div style="margin-top:8px;display:flex;gap:8px;">
+      <button class="btn btn-primary" onclick="return confirm('确认保存？JSON 格式错误可能导致关系网络加载失败。')">💾 保存</button>
+    </div>
+  </form>
+</div>
+"""
+    return base("关系网络", body)
+
 

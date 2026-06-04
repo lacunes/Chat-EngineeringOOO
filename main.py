@@ -8,6 +8,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 
 from bot.deepseek_client import DeepSeekClient
 from bot.memory_manager import MemoryManager
+from bot.relationship_manager import RelationshipManager
 from bot.telegram_handlers import RoleplayBot
 from bot.utils import load_world
 from config import settings
@@ -50,8 +51,10 @@ COMMANDS = {
     "refinememo": "精炼长期记忆",
     "status":     "查看状态",
     # 低频命令靠后
-    "start":      "启动",
-    "reset":      "重开",
+    "relations":      "关系摘要",
+    "relation_full":  "完整关系",
+    "start":          "启动",
+    "reset":          "重开",
 }
 
 
@@ -85,7 +88,8 @@ def main() -> None:
 
     client = DeepSeekClient(settings.DEEPSEEK_KEY, settings.MODEL_NAME)
     memory = MemoryManager(world.WORLD_NAME)
-    roleplay_bot = RoleplayBot(world, memory, client)
+    relationships = RelationshipManager(world.WORLD_NAME)
+    roleplay_bot = RoleplayBot(world, memory, client, relationships)
 
     set_bot_commands()
 
@@ -98,8 +102,10 @@ def main() -> None:
         "status":     roleplay_bot.cmd_status,
         "memo":       roleplay_bot.cmd_memo,
         "refinememo": roleplay_bot.cmd_refine_memo,
-        "c":          roleplay_bot.cmd_continue,
-        "continue":   roleplay_bot.cmd_continue,
+        "c":             roleplay_bot.cmd_continue,
+        "continue":      roleplay_bot.cmd_continue,
+        "relations":     roleplay_bot.cmd_relations,
+        "relation_full": roleplay_bot.cmd_relation_full,
     }
     for cmd in COMMANDS:
         app.add_handler(CommandHandler(cmd, handler_map[cmd]))
@@ -112,7 +118,7 @@ def main() -> None:
     # 在不同版本中对事件循环的管理方式不同）。
 
     # ── 启动 Web 管理面板（守护线程）──
-    ctx = AppContext(world, memory, client, roleplay_bot.npc_manager, time.time())
+    ctx = AppContext(world, memory, client, roleplay_bot.npc_manager, relationships, time.time())
     web_app = create_app(ctx)
     register_routes(web_app)
     threading.Thread(

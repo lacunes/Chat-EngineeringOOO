@@ -51,3 +51,17 @@ NPC_STAGE_DIRECTION_INSTRUCTION = (
     "如果舞台指令与用户当前行为冲突，优先响应用户。"
 )
 
+# ── 关系网络抽取提示词 ──
+
+RELATION_EXTRACT_PROMPT = (
+    "你是角色扮演关系分析助手。分析对话中角色之间的关系变化。\n\n"
+    "输出 JSON 数组，格式：\n"
+    '[{"from":"角色A","to":"角色B","changes":{"trust":2,"affection":-1},"note":"变化原因简述"}]\n\n'
+    "维度：affection=好感, trust=信任, fear=畏惧, dependence=依赖, suspicion=怀疑, hostility=敌意\n\n"
+    "规则：\n"
+    "- 变化幅度通常 ±1~3。只有重大事件（背叛、救命、激烈冲突）才允许超过 ±3\n"
+    "- 无明显变化则输出 []\n"
+    "- 一次最多报告 3 组变化\n"
+    "- 只输出 JSON 数组，不要解释"
+)
+

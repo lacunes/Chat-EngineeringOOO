@@ -228,6 +228,20 @@ NPC_TIMER_INTERVAL = _get_int("NPC_TIMER_INTERVAL", 300)
 # 200 token 足够描述 1-2 个NPC的设计请求。
 NPC_ACTION_MAX_TOKENS = _get_int("NPC_ACTION_MAX_TOKENS", 200)
 
+# ═══════════════════════════════════════════════════════════════
+# 关系网络配置
+# ═══════════════════════════════════════════════════════════════
+
+# 每 N 次 AI 回复后触发一次关系抽取（默认 2）。
+RELATION_EXTRACT_INTERVAL = _get_int("RELATION_EXTRACT_INTERVAL", 2)
+
+# 关系变化超过此阈值时标记为"显著变化"，在提示中加 ⚡ 标记（默认 3）。
+RELATION_SIGNIFICANT_THRESHOLD = _get_int("RELATION_SIGNIFICANT_THRESHOLD", 3)
+
+# ═══════════════════════════════════════════════════════════════
+# NPC主动行为系统配置
+# ═══════════════════════════════════════════════════════════════
+
 # 定时器模式的概率系数（<1.0 降低定时触发频率，默认 0.6）。
 NPC_TIMER_ACTIVATION_MULTIPLIER = float(os.getenv("NPC_TIMER_ACTIVATION_MULTIPLIER", "0.6"))
 

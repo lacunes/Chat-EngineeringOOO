@@ -6,6 +6,7 @@
 
 import ast
 import functools
+import json
 import logging
 import os
 import time
@@ -22,11 +23,12 @@ logger = logging.getLogger(__name__)
 
 class AppContext:
     """Flask 与 Bot 共享的状态容器。"""
-    def __init__(self, world, memory, client, npc_manager, start_time: float):
+    def __init__(self, world, memory, client, npc_manager, relationship_manager, start_time: float):
         self.world = world
         self.memory = memory
         self.client = client
         self.npc_manager = npc_manager
+        self.relationship_manager = relationship_manager
         self.start_time = start_time
 
 
@@ -257,6 +259,43 @@ def register_routes(app: Flask) -> None:
         import threading
         threading.Thread(target=_do_exit, daemon=True).start()
         return _flash_redirect("/worlds", "正在重启…")
+
+    # ── 关系网络 ────────────────────────────────────
+
+    @app.route("/relations", methods=["GET"])
+    @require_auth
+    def view_relations():
+        ctx = _ctx()
+        rm = ctx.relationship_manager
+        data = {
+            "characters": rm.characters,
+            "relations": rm.relations,
+            "_reply_count_since_extract": rm._reply_count_since_extract,
+        }
+        json_text = json.dumps(data, ensure_ascii=False, indent=2)
+        return templates.relations_page(ctx.world.WORLD_NAME, json_text)
+
+    @app.route("/relations", methods=["POST"])
+    @require_auth
+    def save_relations():
+        ctx = _ctx()
+        content = request.form.get("content", "")
+        try:
+            data = json.loads(content)
+            if not isinstance(data, dict):
+                raise ValueError("JSON 必须是对象")
+            ctx.relationship_manager.characters = data.get("characters", [])
+            ctx.relationship_manager.relations = data.get("relations", {})
+            ctx.relationship_manager._reply_count_since_extract = data.get(
+                "_reply_count_since_extract", 0,
+            )
+            ctx.relationship_manager.save()
+            logger.info("Web panel: saved relationships for %s", ctx.world.WORLD_NAME)
+            return _flash_redirect("/relations", "关系网络已保存")
+        except (json.JSONDecodeError, ValueError) as exc:
+            return templates.relations_page(
+                ctx.world.WORLD_NAME, content, error=f"JSON 格式错误: {exc}",
+            )
 
     # ── 日志 ────────────────────────────────────────
 
