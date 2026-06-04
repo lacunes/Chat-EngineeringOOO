@@ -37,10 +37,6 @@ class NPCManager:
     - 冷却系统：触发后需经过 cooldown_messages 条消息才能再次触发
     """
 
-    # ── 消息驱动 vs 定时驱动的概率系数 ──
-    TIMER_ACTIVATION_MULTIPLIER = 0.6   # 定时器模式下概率折半
-    CONTEXT_BOOST_MULTIPLIER = 2.0      # 用户提到NPC名字时概率翻倍
-
     def __init__(self, world, memory):
         """
         Args:
@@ -191,24 +187,18 @@ class NPCManager:
                 logger.warning("NPC '%s' 配置格式错误（非字典），跳过", npc_id)
                 continue
 
+            weight = float(cfg.get('activation_weight', 0.2))
             self.npcs[npc_id] = {
                 'name': str(cfg.get('name', npc_id)),
                 'description': str(cfg.get('description', '')),
                 'personality': str(cfg.get('personality', '')),
                 'goals': list(cfg.get('goals', [])),
                 'typical_actions': list(cfg.get('typical_actions', [])),
-                'activation_weight': self._clamp(
-                    float(cfg.get('activation_weight', 0.2)), 0.0, 1.0
-                ),
+                'activation_weight': max(0.0, min(1.0, weight)),
                 # 冷却最少5条消息，防止同一个NPC在连续对话中频繁出现
                 'cooldown_messages': max(5, int(cfg.get('cooldown_messages', 15))),
             }
             self.cooldowns[npc_id] = 0
-
-    @staticmethod
-    def _clamp(value: float, lo: float, hi: float) -> float:
-        """将数值限制在 [lo, hi] 区间内。"""
-        return max(lo, min(hi, value))
 
     @staticmethod
     def _build_direction(npc: dict) -> str:
@@ -245,7 +235,7 @@ class NPCManager:
             return
 
         triggered = self._evaluate_triggers(
-            timer_multiplier=self.TIMER_ACTIVATION_MULTIPLIER,
+            timer_multiplier=settings.NPC_TIMER_ACTIVATION_MULTIPLIER,
         )
         if not triggered:
             return
@@ -295,7 +285,7 @@ class NPCManager:
             # 第二层：关键词感知 —— 用户提到NPC名字则概率翻倍
             context_boost = 1.0
             if context_text and npc['name'] in context_text:
-                context_boost = self.CONTEXT_BOOST_MULTIPLIER
+                context_boost = settings.NPC_CONTEXT_BOOST_MULTIPLIER
                 logger.debug(
                     "NPC '%s' name found in user message — probability boosted ×%.1f",
                     npc['name'],

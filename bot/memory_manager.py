@@ -22,16 +22,17 @@ class MemoryManager:
     def __init__(self, world_name: str):
         settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         self.world_name = world_name
-        self.memory_file = settings.MEMORY_DIR / f"{world_name}_memory.json"
-        self.long_memory_file = settings.MEMORY_DIR / f"{world_name}_world_memory.json"
-
         self.memory: list[dict] = []
         self.long_memory: list[str] = []
         self.last_auto_memory_index = 0
         self.reset_confirm_users: dict[int, float] = {}
 
-        self._load_memory()
-        self._load_long_memory()
+        # 统一加载短期+长期记忆
+        for slot, suffix in [("memory", "_memory.json"), ("long_memory", "_world_memory.json")]:
+            path = settings.MEMORY_DIR / f"{world_name}{suffix}"
+            label = "short memory" if slot == "memory" else "long memory"
+            setattr(self, slot, self._load_json_list(path, label))
+
         self.last_auto_memory_index = len(self.memory)
 
     @property
@@ -173,16 +174,17 @@ class MemoryManager:
         self.save_long_memory()
 
     def save_memory(self) -> None:
-        self._atomic_write(self.memory_file, self.memory, "short memory")
+        self._save("memory")
 
     def save_long_memory(self) -> None:
-        self._atomic_write(self.long_memory_file, self.long_memory, "long memory")
+        self._save("long_memory")
 
-    def _load_memory(self) -> None:
-        self.memory = self._load_json_list(self.memory_file, "short memory")
-
-    def _load_long_memory(self) -> None:
-        self.long_memory = self._load_json_list(self.long_memory_file, "long memory")
+    def _save(self, slot: str) -> None:
+        """统一持久化入口。slot: 'memory' | 'long_memory'"""
+        suffix = "_memory.json" if slot == "memory" else "_world_memory.json"
+        label = "short memory" if slot == "memory" else "long memory"
+        path = settings.MEMORY_DIR / f"{self.world_name}{suffix}"
+        self._atomic_write(path, getattr(self, slot), label)
 
     @staticmethod
     def _load_json_list(path: Path, label: str) -> list:
@@ -201,26 +203,21 @@ class MemoryManager:
 
     @staticmethod
     def _atomic_write(path: Path, data, label: str) -> None:
-        # 原子写入：先写临时文件，再替换正式文件。
-        # 可以降低断电、崩溃时 JSON 写坏的概率。
-        # 使用 mkstemp 拿到唯一临时文件名后立即关闭 fd，
-        # 再用常规 open 写入，避免 fdopen 失败时 fd 泄漏。
-        tmp_path = None
+        # 原子写入：先写临时文件，再替换正式文件，降低断电/崩溃时 JSON 写坏的概率。
+        tmp = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(path.parent),
-                prefix=".tmp_",
-                suffix=".json",
-            )
-            os.close(fd)
-            with open(tmp_path, "w", encoding="utf-8") as file:
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=str(path.parent), prefix=".tmp_", suffix=".json",
+                delete=False, encoding="utf-8",
+            ) as file:
+                tmp = file.name
                 json.dump(data, file, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, path)
+            os.replace(tmp, path)
         except Exception as exc:
             logger.error("Failed to save %s: %s", label, exc)
-            if tmp_path and os.path.exists(tmp_path):
+            if tmp:
                 try:
-                    os.remove(tmp_path)
+                    os.remove(tmp)
                 except Exception:
                     pass

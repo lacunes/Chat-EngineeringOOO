@@ -228,6 +228,12 @@ NPC_TIMER_INTERVAL = _get_int("NPC_TIMER_INTERVAL", 300)
 # 200 token 足够描述 1-2 个NPC的设计请求。
 NPC_ACTION_MAX_TOKENS = _get_int("NPC_ACTION_MAX_TOKENS", 200)
 
+# 定时器模式的概率系数（<1.0 降低定时触发频率，默认 0.6）。
+NPC_TIMER_ACTIVATION_MULTIPLIER = float(os.getenv("NPC_TIMER_ACTIVATION_MULTIPLIER", "0.6"))
+
+# 用户消息中提到NPC名字时的概率翻倍系数（默认 2.0）。
+NPC_CONTEXT_BOOST_MULTIPLIER = float(os.getenv("NPC_CONTEXT_BOOST_MULTIPLIER", "2.0"))
+
 # ═══════════════════════════════════════════════════════════════
 # 文件路径配置
 # ═══════════════════════════════════════════════════════════════

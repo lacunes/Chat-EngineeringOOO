@@ -208,10 +208,12 @@ NPCS: dict[str, dict] = {
 在 `.env` 中调整：
 
 ```env
-NPC_BASE_ACTIVATION=0.5       # 全局基础概率 (0~1)，0=完全禁用
-NPC_MAX_ACTIONS_PER_CHECK=1   # 单次最多触发几个NPC
-NPC_TIMER_INTERVAL=300        # 后台定时器间隔（秒）
-NPC_ACTION_MAX_TOKENS=200     # 舞台指令最大token
+NPC_BASE_ACTIVATION=0.5             # 全局基础概率 (0~1)，0=完全禁用
+NPC_MAX_ACTIONS_PER_CHECK=1         # 单次最多触发几个NPC
+NPC_TIMER_INTERVAL=300              # 后台定时器间隔（秒）
+NPC_ACTION_MAX_TOKENS=200           # 舞台指令最大token
+NPC_TIMER_ACTIVATION_MULTIPLIER=0.6 # 定时器模式概率折半系数
+NPC_CONTEXT_BOOST_MULTIPLIER=2.0    # 关键词命中时概率翻倍系数
 ```
 
 ---
@@ -239,7 +241,7 @@ ALLOWED_ID=123456789
 ACTIVE_WORLD=one
 ```
 
-说明：
+说明（完整配置项及详细调参指南见 `config/settings.py` 注释）：
 
 | 变量           | 说明                     |
 | ------------ | ---------------------- |
@@ -452,6 +454,7 @@ git push
 服务器同步：
 
 ```bash
+git restore .env.example worlds/one.py
 git pull
 ```
 

@@ -36,22 +36,27 @@ def validate_settings() -> None:
         raise RuntimeError(f"Missing required settings in .env: {', '.join(missing)}")
 
 
+# ── 命令注册表 ──
+# 所有命令的名称和描述集中定义，后续 set_bot_commands() 和 main() 各取所需，
+# 新增命令只需要改这一处。
+COMMANDS = {
+    "start":      "启动",
+    "reset":      "重开",
+    "status":     "查看状态",
+    "memo":       "写入长期记忆",
+    "refinememo": "精炼长期记忆",
+    "c":          "续写",
+    "continue":   "继续上一段",
+}
+
+
 def set_bot_commands() -> None:
     # 注册 Telegram Bot 菜单，让手机端输入命令更方便。
-    commands = [
-        ("c", "续写"),
-        ("continue", "继续上一段"),
-        ("status", "查看状态"),
-        ("start", "启动"),
-        ("reset", "重开"),
-        ("memo", "写入长期记忆"),
-        ("refinememo", "精炼长期记忆"),
-    ]
     url = f"https://api.telegram.org/bot{settings.BOT_TOKEN}/setMyCommands"
     payload = {
         "commands": [
-            {"command": command, "description": description}
-            for command, description in commands
+            {"command": cmd, "description": desc}
+            for cmd, desc in COMMANDS.items()
         ]
     }
     try:
@@ -80,17 +85,19 @@ def main() -> None:
     set_bot_commands()
 
     app = ApplicationBuilder().token(settings.BOT_TOKEN).build()
-    command_handlers = [
-        ("start", roleplay_bot.cmd_start),
-        ("reset", roleplay_bot.cmd_reset),
-        ("status", roleplay_bot.cmd_status),
-        ("memo", roleplay_bot.cmd_memo),
-        ("refinememo", roleplay_bot.cmd_refine_memo),
-        ("continue", roleplay_bot.cmd_continue),
-        ("c", roleplay_bot.cmd_continue),
-    ]
-    for command, handler in command_handlers:
-        app.add_handler(CommandHandler(command, handler))
+
+    # 命令 → handler 映射（实例方法，必须在 RoleplayBot 创建后定义）
+    handler_map = {
+        "start":      roleplay_bot.cmd_start,
+        "reset":      roleplay_bot.cmd_reset,
+        "status":     roleplay_bot.cmd_status,
+        "memo":       roleplay_bot.cmd_memo,
+        "refinememo": roleplay_bot.cmd_refine_memo,
+        "c":          roleplay_bot.cmd_continue,
+        "continue":   roleplay_bot.cmd_continue,
+    }
+    for cmd in COMMANDS:
+        app.add_handler(CommandHandler(cmd, handler_map[cmd]))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, roleplay_bot.handle_chat))
 
     # ── NPC主动行为系统说明 ──
