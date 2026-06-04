@@ -176,6 +176,26 @@ class RelationshipManager:
             self.characters.append(name)
             logger.info("New character in relationship network: %s", name)
 
+    def _resolve_name(self, name: str) -> str:
+        """尝试将昵称变体匹配到已有角色名。
+
+        如 "小B"、"B哥" 中有 "B" 且已有角色 "B"，则返回 "B"。
+        只在已有角色≥1个时启用匹配，首次运行时不生效。
+        """
+        if not self.characters:
+            return name
+        if name in self.characters:
+            return name
+        # 检查新名字是否包含已有角色名，或已有角色名包含新名字
+        for existing in self.characters:
+            if existing in name or name in existing:
+                logger.info("Resolved name '%s' → '%s'", name, existing)
+                return existing
+        return name
+
+    # 不纳入关系网络的名称（玩家角色、通用称呼等）
+    _IGNORED_NAMES: set[str] = {"用户", "玩家", "我", "你", "他", "她", "它"}
+
     def apply_changes(self, changes: list[dict], message_index: int) -> list[str]:
         """应用抽取出的关系变化，返回需显示的提示文本列表。"""
         hints: list[str] = []
@@ -184,6 +204,14 @@ class RelationshipManager:
             to_char = (change.get("to") or "").strip()
             if not from_char or not to_char or from_char == to_char:
                 continue
+            # 过滤玩家角色和通用称呼
+            if from_char in self._IGNORED_NAMES or to_char in self._IGNORED_NAMES:
+                logger.debug("Skipping relation involving ignored name: %s -> %s", from_char, to_char)
+                continue
+
+            # 尝试匹配已有角色名（处理昵称变体：如"小B"匹配到"B"）
+            from_char = self._resolve_name(from_char)
+            to_char = self._resolve_name(to_char)
 
             self.ensure_character(from_char)
             self.ensure_character(to_char)
