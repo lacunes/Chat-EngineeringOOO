@@ -8,6 +8,7 @@ __pycache__/
 *.pyd
 *.log
 memory/
+*.bak
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
