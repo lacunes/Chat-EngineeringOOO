@@ -43,13 +43,15 @@ def validate_settings() -> None:
 # 所有命令的名称和描述集中定义，后续 set_bot_commands() 和 main() 各取所需，
 # 新增命令只需要改这一处。
 COMMANDS = {
-    "start":      "启动",
-    "reset":      "重开",
-    "status":     "查看状态",
-    "memo":       "写入长期记忆",
-    "refinememo": "精炼长期记忆",
+    # 高频命令靠前
     "c":          "续写",
     "continue":   "继续上一段",
+    "memo":       "写入长期记忆",
+    "refinememo": "精炼长期记忆",
+    "status":     "查看状态",
+    # 低频命令靠后
+    "start":      "启动",
+    "reset":      "重开",
 }
 
 

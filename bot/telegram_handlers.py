@@ -40,6 +40,8 @@ class RoleplayBot:
         self.client = client
         # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
         self.npc_manager = NPCManager(world, memory)
+        # 防止后台记忆维护任务堆积
+        self._bg_maintenance_running = False
 
     def is_authorized(self, update: Update) -> bool:
         return bool(update.effective_user and update.effective_user.id == settings.ALLOWED_ID)
@@ -194,18 +196,14 @@ class RoleplayBot:
     ) -> str:
         """统一处理普通回复和续写回复的公共流程。
 
-        NPC主动行为融入流程：
-        1. npc_manager.tick() —— 更新冷却计时器
-        2. npc_manager.get_stage_directions() —— 评估触发条件，生成舞台指令
-        3. 将舞台指令注入 system prompt
-        4. 模型在生成回复时自然融入NPC行为
+        关键优化：compress_old_memory 和 auto_extract_long_memory
+        从主流程中移出，作为后台任务异步执行，不再阻塞用户收到回复。
         """
         # ── NPC主动行为：更新冷却、获取舞台指令 ──
         self.npc_manager.tick()
         stage_directions = self.npc_manager.get_stage_directions(user_text)
 
         self.memory.add_user_message(user_text)
-        await self.memory.compress_old_memory(self.client)
 
         # 构建系统提示词：如果有NPC舞台指令，先注入处理指令再附舞台指令
         system_prompt = self.world.SYSTEM_PROMPT
@@ -218,6 +216,7 @@ class RoleplayBot:
                 + stage_directions
             )
 
+        # ── 主 API 调用（关键路径，不阻塞）──
         reply, finish = await self.client.chat(
             self.memory.build_messages(system_prompt),
             max_tokens=max_tokens,
@@ -226,6 +225,26 @@ class RoleplayBot:
             reply += length_notice
 
         self.memory.add_assistant_message(reply)
-        await self.memory.auto_extract_long_memory(self.client)
         self.memory.save_memory()
+
+        # ── 后台记忆维护（不阻塞回复）──
+        self._schedule_background_maintenance()
+
         return reply
+
+    def _schedule_background_maintenance(self) -> None:
+        """调度后台记忆压缩和抽取，防止任务堆积。"""
+        if self._bg_maintenance_running:
+            return
+
+        async def _run():
+            self._bg_maintenance_running = True
+            try:
+                await self.memory.compress_old_memory(self.client)
+                await self.memory.auto_extract_long_memory(self.client)
+            except Exception as exc:
+                logger.warning("Background maintenance failed: %s", exc)
+            finally:
+                self._bg_maintenance_running = False
+
+        asyncio.create_task(_run())

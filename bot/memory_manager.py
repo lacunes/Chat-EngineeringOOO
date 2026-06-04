@@ -113,8 +113,9 @@ class MemoryManager:
             self.add_long_memory_item(f"旧剧情摘要：{summary}")
             await self.refine_long_memory(client, force=True)
 
-        self.memory = self.memory[old_size // 2 :]
-        self.last_auto_memory_index = len(self.memory)
+        with self._lock:
+            self.memory = self.memory[old_size // 2 :]
+            self.last_auto_memory_index = len(self.memory)
         self.save_memory()
         logger.info("Short memory compressed: %s -> %s", old_size, len(self.memory))
 
@@ -143,11 +144,13 @@ class MemoryManager:
             if new_items:
                 self.save_long_memory()
                 logger.info("Auto extracted %s long memory items", len(new_items))
-            self.last_auto_memory_index = len(self.memory)
+            with self._lock:
+                self.last_auto_memory_index = len(self.memory)
             await self.refine_long_memory(client, force=False)
         except Exception as exc:
             logger.warning("Auto long memory extraction failed: %s", exc)
-            self.last_auto_memory_index = len(self.memory)
+            with self._lock:
+                self.last_auto_memory_index = len(self.memory)
 
     async def refine_long_memory(self, client, force: bool = False) -> None:
         # 长期记忆先本地去重；数量太多时再请求模型合并精炼。
