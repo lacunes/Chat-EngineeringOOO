@@ -235,6 +235,21 @@ NPC_TIMER_ACTIVATION_MULTIPLIER = float(os.getenv("NPC_TIMER_ACTIVATION_MULTIPLI
 NPC_CONTEXT_BOOST_MULTIPLIER = float(os.getenv("NPC_CONTEXT_BOOST_MULTIPLIER", "2.0"))
 
 # ═══════════════════════════════════════════════════════════════
+# Web 管理面板配置
+# ═══════════════════════════════════════════════════════════════
+
+# Web 面板监听端口（默认 8080）。
+WEB_PORT = _get_int("WEB_PORT", 8080)
+
+# Web 面板监听地址。默认 0.0.0.0 监听所有网络接口（可通过外网 IP 访问）。
+# 如果只想本地访问（配合 SSH 隧道），改为 127.0.0.1。
+WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
+
+# Web 面板登录密码。用户名固定为 admin。
+# 留空则面板不设密码（不安全！强烈建议设置）。
+WEB_PASSWORD = os.getenv("WEB_PASSWORD", "").strip()
+
+# ═══════════════════════════════════════════════════════════════
 # 文件路径配置
 # ═══════════════════════════════════════════════════════════════
 

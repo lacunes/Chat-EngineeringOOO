@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 from pathlib import Path
 
 from bot import utils
@@ -26,6 +27,7 @@ class MemoryManager:
         self.long_memory: list[str] = []
         self.last_auto_memory_index = 0
         self.reset_confirm_users: dict[int, float] = {}
+        self._lock = threading.Lock()  # Web 面板与 Bot 并发写入保护
 
         # 统一加载短期+长期记忆
         for slot, suffix in [("memory", "_memory.json"), ("long_memory", "_world_memory.json")]:
@@ -44,22 +46,27 @@ class MemoryManager:
         return len(self.long_memory)
 
     def add_user_message(self, text: str) -> None:
-        self.memory.append({"role": "user", "content": text})
+        with self._lock:
+            self.memory.append({"role": "user", "content": text})
 
     def add_assistant_message(self, text: str) -> None:
-        self.memory.append({"role": "assistant", "content": text})
+        with self._lock:
+            self.memory.append({"role": "assistant", "content": text})
 
     def add_long_memory_item(self, text: str) -> None:
         clean = utils.normalize_text(text)
-        if clean and clean not in self.long_memory:
-            self.long_memory.append(clean)
+        if clean:
+            with self._lock:
+                if clean not in self.long_memory:
+                    self.long_memory.append(clean)
 
     def reset(self) -> None:
-        self.memory = []
-        self.long_memory = []
-        self.last_auto_memory_index = 0
-        self.save_memory()
-        self.save_long_memory()
+        with self._lock:
+            self.memory = []
+            self.long_memory = []
+            self.last_auto_memory_index = 0
+            self.save_memory()
+            self.save_long_memory()
 
     def build_messages(self, system_prompt: str) -> list:
         # 发给模型的顺序：
@@ -144,10 +151,12 @@ class MemoryManager:
 
     async def refine_long_memory(self, client, force: bool = False) -> None:
         # 长期记忆先本地去重；数量太多时再请求模型合并精炼。
-        self.long_memory = utils.normalize_memory_items(self.long_memory)
+        with self._lock:
+            self.long_memory = utils.normalize_memory_items(self.long_memory)
+            items = list(self.long_memory)
         if (
             not force
-            and len(self.long_memory)
+            and len(items)
             <= settings.LONG_MEMORY_MAX_ITEMS + settings.LONG_MEMORY_REFINE_BUFFER
         ):
             return
@@ -156,20 +165,22 @@ class MemoryManager:
             refined_text, _ = await client.chat(
                 [
                     {"role": "system", "content": prompts.LONG_MEMORY_REFINE_PROMPT},
-                    {"role": "user", "content": json.dumps(self.long_memory, ensure_ascii=False)},
+                    {"role": "user", "content": json.dumps(items, ensure_ascii=False)},
                 ],
                 max_tokens=900,
                 temperature=0.35,  # 精炼需要准确合并去重，温度低减少偏差
             )
             refined = utils.parse_memory_json(refined_text)
-            if refined:
-                self.long_memory = refined[: settings.LONG_MEMORY_MAX_ITEMS]
-                logger.info("Long memory refined to %s items", len(self.long_memory))
-            else:
-                logger.warning("Long memory refine returned empty output")
+            with self._lock:
+                if refined:
+                    self.long_memory = refined[: settings.LONG_MEMORY_MAX_ITEMS]
+                    logger.info("Long memory refined to %s items", len(self.long_memory))
+                else:
+                    logger.warning("Long memory refine returned empty output")
         except Exception as exc:
             logger.warning("Long memory refine failed, using local trim: %s", exc)
-            self.long_memory = self.long_memory[-settings.LONG_MEMORY_MAX_ITEMS :]
+            with self._lock:
+                self.long_memory = self.long_memory[-settings.LONG_MEMORY_MAX_ITEMS :]
 
         self.save_long_memory()
 

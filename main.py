@@ -1,5 +1,7 @@
 import logging
 import sys
+import threading
+import time
 
 import requests
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
@@ -9,6 +11,7 @@ from bot.memory_manager import MemoryManager
 from bot.telegram_handlers import RoleplayBot
 from bot.utils import load_world
 from config import settings
+from web.app import AppContext, create_app, register_routes
 
 
 def setup_logging() -> None:
@@ -105,6 +108,26 @@ def main() -> None:
     # tick() 在每条用户消息时被调用，内部会检查时间间隔并自动触发定时评估。
     # 这样可以避免 asyncio 事件循环兼容性问题（尤其是 python-telegram-bot
     # 在不同版本中对事件循环的管理方式不同）。
+
+    # ── 启动 Web 管理面板（守护线程）──
+    ctx = AppContext(world, memory, client, roleplay_bot.npc_manager, time.time())
+    web_app = create_app(ctx)
+    register_routes(web_app)
+    threading.Thread(
+        target=lambda: web_app.run(
+            host=settings.WEB_HOST,
+            port=settings.WEB_PORT,
+            debug=False,
+            use_reloader=False,
+        ),
+        daemon=True,
+        name="web-panel",
+    ).start()
+
+    if settings.WEB_PASSWORD:
+        logger.info("Web panel: http://%s:%s (admin / ***)", settings.WEB_HOST, settings.WEB_PORT)
+    else:
+        logger.warning("Web panel: http://%s:%s (无密码！请设置 WEB_PASSWORD)", settings.WEB_HOST, settings.WEB_PORT)
 
     logger.info("Roleplay Bot started with world: %s", world.WORLD_NAME)
     app.run_polling()
