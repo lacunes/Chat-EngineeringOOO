@@ -92,42 +92,33 @@ class RelationshipManager:
     # 查询
     # ═══════════════════════════════════════════════════════
 
+    def _build_relation_lines(self, prefix: str = "- ", indent: str = "") -> list[str]:
+        """构建关系摘要行（去重逻辑）。"""
+        lines = []
+        for key, rel in self.relations.items():
+            parts = [f"{label}{rel.get(dim, 0)}"
+                     for dim, label in DIMENSION_LABELS.items()
+                     if rel.get(dim, 0) != 0]
+            if parts:
+                lines.append(f"{indent}{prefix}{key}：{', '.join(parts)}")
+        return lines
+
     def get_summary(self, max_chars: int = 500) -> str:
-        """生成注入系统提示词的简短关系摘要。只显示非零维度。"""
+        """生成注入系统提示词的简短关系摘要。"""
         if not self.relations:
             return ""
-
-        lines = ["\n[当前角色关系]"]
-        for key, rel in self.relations.items():
-            parts = []
-            for dim, label in DIMENSION_LABELS.items():
-                val = rel.get(dim, 0)
-                if val != 0:
-                    parts.append(f"{label}{val}")
-            if parts:
-                lines.append(f"- {key}：{', '.join(parts)}")
-
-        if len(lines) == 1:
+        lines = self._build_relation_lines()
+        if not lines:
             return ""
-
-        text = "\n".join(lines)
+        text = "\n".join(["\n[当前角色关系]"] + lines)
         return text[:max_chars] + ("…" if len(text) > max_chars else "")
 
     def get_status_text(self) -> str:
         """简短摘要，供 /relations 命令使用。"""
         if not self.relations:
             return "当前世界暂无角色关系数据。"
-
-        lines = [f"🌐 {self.world_name} 关系网络："]
-        for key, rel in self.relations.items():
-            parts = []
-            for dim, label in DIMENSION_LABELS.items():
-                val = rel.get(dim, 0)
-                if val != 0:
-                    parts.append(f"{label}{val}")
-            if parts:
-                lines.append(f"  {key}：{', '.join(parts)}")
-        return "\n".join(lines)
+        lines = self._build_relation_lines(prefix="", indent="  ")
+        return "\n".join([f"🌐 {self.world_name} 关系网络："] + lines)
 
     def get_full_text(self) -> str:
         """完整关系文本，供 /relation_full 使用。"""

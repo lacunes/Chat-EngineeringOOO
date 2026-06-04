@@ -17,18 +17,13 @@ LONG_MEMORY_EXTRACT_PROMPT = (
     "如果没有值得记录的内容，输出 []。"
 )
 
-def _make_refine_prompt() -> str:
-    """运行时构造精炼提示词，避免模块加载时静态内插 settings。"""
-    return (
-        "你是角色扮演长期记忆整理助手。"
-        "请把长期记忆去重、合并、精炼为 JSON 字符串数组。"
-        f"最多保留 {settings.LONG_MEMORY_MAX_ITEMS} 条，每条不超过 90 字。"
-        "只保留稳定事实、人物关系、当前阶段、重要伏笔和长期习惯。"
-        "删除重复、临时情绪、无关细节。只输出 JSON 数组，不要解释。"
-    )
-
-
-LONG_MEMORY_REFINE_PROMPT = _make_refine_prompt()
+LONG_MEMORY_REFINE_PROMPT = (
+    "你是角色扮演长期记忆整理助手。"
+    "请把长期记忆去重、合并、精炼为 JSON 字符串数组。"
+    f"最多保留 {settings.LONG_MEMORY_MAX_ITEMS} 条，每条不超过 90 字。"
+    "只保留稳定事实、人物关系、当前阶段、重要伏笔和长期习惯。"
+    "删除重复、临时情绪、无关细节。只输出 JSON 数组，不要解释。"
+)
 
 CONTINUE_PROMPT = (
     "接着上一条回复继续写。"

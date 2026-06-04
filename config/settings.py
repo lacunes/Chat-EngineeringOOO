@@ -201,52 +201,19 @@ RESET_CONFIRM_SECONDS = _get_int("RESET_CONFIRM_SECONDS", 30)
 # NPC主动行为系统配置
 # ═══════════════════════════════════════════════════════════════
 
-# 全局基础激活概率（0~1）。每个NPC的实际触发概率 = 其权重 × 此值。
-# 默认 0.5: 例如 NPC 权重 0.3 × 0.5 = 15% 概率每次消息触发。
-# 设为 0: 完全禁用NPC主动行为（但不会删代码，随时可以重新启用）。
-# 调高 (0.7-1.0): NPC非常活跃，几乎每轮都可能有人行动。
-# 调低 (0.1-0.3): NPC很少主动行动，故事主要由用户推动。
-# 注意：定时器模式还会额外乘以 0.6 的折半系数。
 NPC_BASE_ACTIVATION = float(os.getenv("NPC_BASE_ACTIVATION", "0.5"))
-
-# 单次检查最多触发几个NPC（默认 1 个）。
-# 1: 一次最多一个NPC行动，叙事清晰，NPC轮流上场。
-# 2+: 可能出现多个NPC同时行动，增加场景活力但可能混乱。
 NPC_MAX_ACTIONS_PER_CHECK = _get_int("NPC_MAX_ACTIONS_PER_CHECK", 1)
-
-# 后台定时器检查间隔（秒，默认 300 = 5分钟）。
-# 定时器集成在 NPCManager.tick() 中，用户发消息时顺便检查时间。
-# 注意：如果用户长时间不说话，定时器也不会触发 —— 这就是设计意图，
-# 因为没人看的时候 NPC 在后台活跃没有意义。
-# 调高 (600-900): 用户沉默时NPC行动更保守。
-# 调低 (60-180): NPC在更短的沉默后就会主动行动。
 NPC_TIMER_INTERVAL = _get_int("NPC_TIMER_INTERVAL", 300)
-
-# NPC行为舞台指令的最大 token 数（200 ≈ 中文约 150-180 字）。
-# 这个值控制的是注入到 system prompt 的"舞台指令"长度，
-# 不是NPC最终行为的长度（行为长度由主模型回复决定）。
-# 200 token 足够描述 1-2 个NPC的设计请求。
 NPC_ACTION_MAX_TOKENS = _get_int("NPC_ACTION_MAX_TOKENS", 200)
+NPC_TIMER_ACTIVATION_MULTIPLIER = float(os.getenv("NPC_TIMER_ACTIVATION_MULTIPLIER", "0.6"))
+NPC_CONTEXT_BOOST_MULTIPLIER = float(os.getenv("NPC_CONTEXT_BOOST_MULTIPLIER", "2.0"))
 
 # ═══════════════════════════════════════════════════════════════
 # 关系网络配置
 # ═══════════════════════════════════════════════════════════════
 
-# 每 N 次 AI 回复后触发一次关系抽取（默认 2）。
 RELATION_EXTRACT_INTERVAL = _get_int("RELATION_EXTRACT_INTERVAL", 2)
-
-# 关系变化超过此阈值时标记为"显著变化"，在提示中加 ⚡ 标记（默认 3）。
 RELATION_SIGNIFICANT_THRESHOLD = _get_int("RELATION_SIGNIFICANT_THRESHOLD", 3)
-
-# ═══════════════════════════════════════════════════════════════
-# NPC主动行为系统配置
-# ═══════════════════════════════════════════════════════════════
-
-# 定时器模式的概率系数（<1.0 降低定时触发频率，默认 0.6）。
-NPC_TIMER_ACTIVATION_MULTIPLIER = float(os.getenv("NPC_TIMER_ACTIVATION_MULTIPLIER", "0.6"))
-
-# 用户消息中提到NPC名字时的概率翻倍系数（默认 2.0）。
-NPC_CONTEXT_BOOST_MULTIPLIER = float(os.getenv("NPC_CONTEXT_BOOST_MULTIPLIER", "2.0"))
 
 # ═══════════════════════════════════════════════════════════════
 # Web 管理面板配置

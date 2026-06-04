@@ -500,7 +500,10 @@ def _ast_value_to_form(node) -> str:
             if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                 items.append(elt.value)
             else:
-                items.append(ast.get_source_segment(ast.dump.__code__, elt) or str(elt))  # fallback
+                try:
+                    items.append(ast.unparse(elt))
+                except Exception:
+                    items.append(str(elt))
         return "\n".join(items)
 
     if isinstance(node, ast.Dict):

@@ -10,7 +10,6 @@ from telegram.ext import ContextTypes
 
 from bot import utils
 from bot.npc_manager import NPCManager
-from bot.relationship_manager import RelationshipManager
 from config import prompts, settings
 
 
