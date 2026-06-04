@@ -164,8 +164,9 @@ def register_routes(app: Flask) -> None:
     def reset_memory():
         ctx = _ctx()
         ctx.memory.reset()
-        logger.info("Web panel: memory reset for world %s", ctx.world.WORLD_NAME)
-        return _flash_redirect("/", "当前世界记忆已清空")
+        ctx.relationship_manager.reset()
+        logger.info("Web panel: memory + relationships reset for world %s", ctx.world.WORLD_NAME)
+        return _flash_redirect("/", "当前世界记忆和关系网络已清空")
 
     # ── 世界管理 ────────────────────────────────────
 

@@ -92,9 +92,10 @@ class RoleplayBot:
             return
 
         self.memory.reset()
+        self.relationship_manager.reset()
         self.memory.reset_confirm_users.pop(user_id, None)
         logger.info("User %s reset world %s", user_id, self.world.WORLD_NAME)
-        await update.message.reply_text("已确认，当前世界的短期和长期记忆均已清空。")
+        await update.message.reply_text("已确认，当前世界的记忆和关系网络均已清空。")
 
     @require_auth
     async def cmd_memo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

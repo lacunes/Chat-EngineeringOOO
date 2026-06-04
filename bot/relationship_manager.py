@@ -176,6 +176,15 @@ class RelationshipManager:
             self.characters.append(name)
             logger.info("New character in relationship network: %s", name)
 
+    def reset(self) -> None:
+        """清空当前世界的关系网络。"""
+        self.characters = []
+        self.relations = {}
+        self._reply_count_since_extract = 0
+        self._pending_hints = []
+        self.save()
+        logger.info("Relationship network reset for world '%s'", self.world_name)
+
     def _resolve_name(self, name: str) -> str:
         """尝试将昵称变体匹配到已有角色名。
 
