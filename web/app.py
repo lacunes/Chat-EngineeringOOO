@@ -4,6 +4,7 @@
 所有路由共享 Bot 的 world / memory / client / npc_manager 实例。
 """
 
+import ast
 import functools
 import logging
 import os
@@ -164,6 +165,101 @@ def register_routes(app: Flask) -> None:
         logger.info("Web panel: memory reset for world %s", ctx.world.WORLD_NAME)
         return _flash_redirect("/", "当前世界记忆已清空")
 
+    # ── 世界管理 ────────────────────────────────────
+
+    @app.route("/worlds")
+    @require_auth
+    def list_worlds():
+        ctx = _ctx()
+        worlds_dir = settings.BASE_DIR / "worlds"
+        active = ctx.world.WORLD_NAME
+        world_list = []
+        for py_file in sorted(worlds_dir.glob("*.py")):
+            name = py_file.stem
+            if name == "__init__":
+                continue
+            size_kb = py_file.stat().st_size / 1024
+            world_list.append({
+                "name": name,
+                "path": str(py_file.relative_to(settings.BASE_DIR)),
+                "size_kb": size_kb,
+                "is_active": name == active,
+            })
+        return templates.world_list(world_list, active)
+
+    @app.route("/worlds/<name>", methods=["GET"])
+    @require_auth
+    def edit_world(name: str):
+        # 安全检查：防止路径穿越
+        if not name.isidentifier():
+            return _flash_redirect("/worlds", "无效的世界名", "error")
+
+        file_path = settings.BASE_DIR / "worlds" / f"{name}.py"
+        if not file_path.exists():
+            return _flash_redirect("/worlds", f"世界 '{name}' 不存在", "error")
+
+        content = file_path.read_text(encoding="utf-8")
+        return templates.world_editor(name, content, str(file_path.relative_to(settings.BASE_DIR)))
+
+    @app.route("/worlds/<name>", methods=["POST"])
+    @require_auth
+    def save_world(name: str):
+        if not name.isidentifier():
+            return _flash_redirect("/worlds", "无效的世界名", "error")
+
+        file_path = settings.BASE_DIR / "worlds" / f"{name}.py"
+        if not file_path.exists():
+            return _flash_redirect("/worlds", f"世界 '{name}' 不存在", "error")
+
+        content = request.form.get("content", "")
+        # 检查 Python 语法，防止保存后 Bot 启动失败
+        try:
+            ast.parse(content)
+        except SyntaxError as exc:
+            return templates.world_editor(
+                name, content, str(file_path.relative_to(settings.BASE_DIR)),
+                error=f"语法错误: {exc}",
+            )
+
+        file_path.write_text(content, encoding="utf-8")
+        logger.info("Web panel: saved world file %s", name)
+        return _flash_redirect(f"/worlds/{name}", f"{name}.py 已保存")
+
+    @app.route("/worlds/switch", methods=["POST"])
+    @require_auth
+    def switch_world():
+        new_world = (request.form.get("world") or "").strip()
+        if not new_world.isidentifier():
+            return _flash_redirect("/worlds", "无效的世界名", "error")
+
+        file_path = settings.BASE_DIR / "worlds" / f"{new_world}.py"
+        if not file_path.exists():
+            return _flash_redirect("/worlds", f"世界文件 worlds/{new_world}.py 不存在", "error")
+
+        _update_env("ACTIVE_WORLD", new_world)
+        logger.info("Web panel: switched ACTIVE_WORLD to %s", new_world)
+        return _flash_redirect("/worlds", f"已切换至 {new_world}，请重启 Bot 生效")
+
+    @app.route("/restart", methods=["POST"])
+    @require_auth
+    def restart_bot():
+        """重启 Bot 进程。
+
+        退出码 0 配合进程管理器（tmux 下需手动重启，systemd Restart=always 会自动拉起）。
+        """
+        logger.warning("Web panel: restart requested")
+        # 先返回响应，再退出进程（给浏览器一个交代）
+        import sys
+        def _do_exit():
+            import time as _time
+            _time.sleep(1)
+            os._exit(0)
+        import threading
+        threading.Thread(target=_do_exit, daemon=True).start()
+        return _flash_redirect("/worlds", "正在重启…")
+
+    # ── 日志 ────────────────────────────────────────
+
     @app.route("/logs")
     @require_auth
     def view_logs():
@@ -204,6 +300,25 @@ def _flash_redirect(url: str, message: str = "", kind: str = "success") -> Respo
     query = f"flash={kind}:{message}"
     parts[4] = query if not parts[4] else f"{parts[4]}&{query}"
     return _redirect(urlunparse(parts))
+
+
+def _update_env(key: str, value: str) -> None:
+    """更新 .env 文件中的键值对，保留原有格式。"""
+    env_path = settings.BASE_DIR / ".env"
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+        found = False
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
+                lines[i] = f"{key}={value}"
+                found = True
+                break
+        if not found:
+            lines.append(f"{key}={value}")
+        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    else:
+        logger.warning(".env not found, cannot update %s", key)
 
 
 def _format_uptime(seconds: float) -> str:

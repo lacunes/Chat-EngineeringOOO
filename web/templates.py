@@ -64,6 +64,7 @@ def base(title: str, body: str, refresh_sec: int = 0) -> str:
   <a href="/"{' class="active"' if title == "仪表盘" else ""}>📊 仪表盘</a>
   <a href="/memory"{' class="active"' if title.startswith("短期") else ""}>💬 短期记忆</a>
   <a href="/memory/long"{' class="active"' if title.startswith("长期") else ""}>🧠 长期记忆</a>
+  <a href="/worlds"{' class="active"' if title.startswith("世界") else ""}>🌍 世界</a>
   <a href="/logs"{' class="active"' if title.startswith("日志") else ""}>📜 日志</a>
 </div>
 <div class="container">
@@ -235,3 +236,67 @@ def logs_view(lines: list, file_path: str) -> str:
 </div>
 """
     return base("日志", body, refresh_sec=15)
+
+
+# ── 世界管理 ────────────────────────────────────────
+
+def world_list(worlds: list[dict], active: str) -> str:
+    """世界文件列表页。
+
+    worlds: [{"name": "one", "path": "worlds/one.py", "size_kb": 3.2, "is_active": True}, ...]
+    """
+    if not worlds:
+        rows = '<tr><td colspan="4" class="empty">未找到世界文件</td></tr>'
+    else:
+        rows = ""
+        for w in worlds:
+            badge = ' <span style="background:#27ae60;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;">当前</span>' if w["is_active"] else ""
+            rows += f"""<tr>
+  <td>{w['name']}{badge}</td>
+  <td style="font-size:12px;color:#888;">{w['path']}</td>
+  <td style="font-size:12px;color:#888;">{w['size_kb']:.1f} KB</td>
+  <td style="text-align:center;">
+    <a href="/worlds/{w['name']}" class="btn btn-primary btn-sm">编辑</a>
+    {'<span class="btn btn-sm" style="background:#95a5a6;color:#fff;cursor:default;">已激活</span>' if w['is_active'] else f'<form method="post" action="/worlds/switch" style="display:inline"><input type="hidden" name="world" value="{w["name"]}"><button class="btn btn-sm" style="background:#f39c12;color:#fff;">切换</button></form>'}
+  </td>
+</tr>"""
+
+    body = f"""
+<h1>🌍 世界管理</h1>
+<p style="margin-bottom:12px;color:#888;">切换世界会更新 .env 文件，需重启 Bot 生效。</p>
+
+<div class="card">
+  <table>{rows}</table>
+</div>
+
+<div class="card">
+  <form method="post" action="/restart" onsubmit="return confirm('确认重启 Bot？Web 面板将暂时不可用。')" style="display:inline">
+    <button class="btn btn-danger">🔄 重启 Bot</button>
+  </form>
+  <span style="margin-left:8px;font-size:13px;color:#888;">使世界切换生效（需 tmux/systemd 自动拉起）</span>
+</div>
+"""
+    return base("世界管理", body)
+
+
+def world_editor(name: str, content: str, file_path: str, error: str = "") -> str:
+    """世界文件编辑页。"""
+    lines = content.count("\n") + 1
+    error_html = f'<div class="flash flash-error">{error}</div>' if error else ""
+    body = f"""
+<h1>🌍 编辑世界: {name}</h1>
+<p style="margin-bottom:12px;color:#888;">文件: {file_path}（{lines} 行）</p>
+{error_html}
+
+<div class="card">
+  <form method="post" action="/worlds/{name}">
+    <textarea name="content" style="min-height:500px;font-family:'Cascadia Code','Fira Code',monospace;font-size:13px;">{content}</textarea>
+    <div style="margin-top:8px;display:flex;gap:8px;">
+      <button class="btn btn-primary" onclick="return confirm('确认保存？语法错误可能导致世界加载失败。')">💾 保存</button>
+      <a href="/worlds" class="btn" style="background:#95a5a6;color:#fff;">取消</a>
+    </div>
+  </form>
+</div>
+"""
+    return base(f"世界编辑 - {name}", body)
+
