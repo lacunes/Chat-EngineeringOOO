@@ -57,6 +57,25 @@ def base(title: str, body: str, refresh_sec: int = 0) -> str:
   .flash-error {{ background: #f8d7da; color: #721c24; }}
   .empty {{ text-align: center; color: #aaa; padding: 40px 0; }}
   #flash-msg {{ display: none; }}
+  .mode-bar {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }}
+  .mode-bar a {{ font-size: 13px; color: #888; text-decoration: none; }}
+  .mode-bar a:hover {{ color: #3498db; }}
+  .rel-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+  .rel-table th {{ font-size: 11px; padding: 6px 4px; text-align: center; }}
+  .rel-table td {{ padding: 4px; vertical-align: middle; }}
+  .rel-table input[type=number] {{ width: 56px; padding: 4px; margin: 0; text-align: center; font-size: 13px; }}
+  .rel-table input[type=text] {{ width: 80px; padding: 4px; margin: 0; font-size: 13px; }}
+  .rel-table textarea {{ width: 140px; padding: 4px; margin: 0; font-size: 12px; min-height: 40px; }}
+  .rel-table .btn {{ padding: 3px 8px; font-size: 11px; }}
+  .memory-card {{ background: #fff; border-left: 3px solid #3498db; border-radius: 6px; padding: 12px 16px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }}
+  .memory-card .mem-index {{ font-size: 11px; color: #aaa; }}
+  .memory-card .mem-text {{ font-size: 14px; line-height: 1.7; margin: 6px 0; }}
+  .memory-card .mem-actions {{ text-align: right; }}
+  .world-field {{ margin-bottom: 16px; }}
+  .world-field label {{ display: block; font-weight: 600; font-size: 14px; color: #2c3e50; margin-bottom: 4px; }}
+  .world-field .hint {{ font-size: 11px; color: #aaa; margin-bottom: 4px; }}
+  .world-field textarea {{ font-size: 13px; line-height: 1.6; }}
+  .world-field input[type=text] {{ font-size: 14px; }}
 </style>
 </head>
 <body>
@@ -165,27 +184,28 @@ def short_memory(messages: list, memory_count: int) -> str:
 
 # ── 长期记忆 ────────────────────────────────────────
 
-def long_memory(items: list, max_items: int) -> str:
+def long_memory_cards(items: list, max_items: int) -> str:
+    """长期记忆：卡片展示模式。"""
     if not items:
-        rows = '<tr><td colspan="3" class="empty">暂无长期记忆</td></tr>'
+        cards = '<div class="empty">暂无长期记忆</div>'
     else:
-        rows = ""
+        cards = ""
         for i, item in enumerate(items):
-            # 截断过长条目
-            text = item if len(item) <= 200 else item[:200] + "…"
-            rows += f"""<tr>
-  <td style="width:40px;text-align:right;color:#aaa;">{i + 1}</td>
-  <td>{text}</td>
-  <td style="width:60px;text-align:center;">
+            cards += f"""<div class="memory-card">
+  <div class="mem-index">#{i + 1}</div>
+  <div class="mem-text">{item}</div>
+  <div class="mem-actions">
     <form method="post" action="/memory/long/{i}/delete" style="display:inline">
       <button class="btn btn-danger btn-sm">删除</button>
     </form>
-  </td>
-</tr>"""
+  </div>
+</div>"""
 
     body = f"""
 <h1>🧠 长期记忆</h1>
-<p style="margin-bottom:12px;color:#888;">共 {len(items)} 条（上限 {max_items} 条），最近 {settings.LONG_MEMORY_CONTEXT_LIMIT} 条会注入模型上下文。</p>
+<div class="mode-bar">
+  <span style="color:#888;font-size:13px;">共 {len(items)} 条（上限 {max_items} 条），最近 {settings.LONG_MEMORY_CONTEXT_LIMIT} 条注入上下文</span>
+</div>
 
 <div class="card">
   <h2>新增条目</h2>
@@ -197,7 +217,7 @@ def long_memory(items: list, max_items: int) -> str:
 
 <div class="card">
   <h2>现有条目</h2>
-  <table>{rows}</table>
+  {cards}
 </div>
 
 <div class="card">
@@ -280,17 +300,78 @@ def world_list(worlds: list[dict], active: str) -> str:
     return base("世界管理", body)
 
 
-def world_editor(name: str, content: str, file_path: str, error: str = "") -> str:
-    """世界文件编辑页。"""
+def world_form(name: str, fields: dict, file_path: str, error: str = "") -> str:
+    """世界编辑：表单模式。
+
+    fields: {"WORLD_NAME": "one", "START_SCENE": "...", "SYSTEM_PROMPT": "...",
+             "CHARACTERS": "角色A: 描述A\\n角色B: 描述B", ...}
+    """
+    error_html = f'<div class="flash flash-error">{error}</div>' if error else ""
+
+    def _field(key: str, label: str, value: str, hint: str = "", rows: int = 4) -> str:
+        v = value or ""
+        return f"""<div class="world-field">
+  <label>{label}</label>
+  <div class="hint">{hint}</div>
+  <textarea name="field_{key}" rows="{rows}">{v}</textarea>
+</div>"""
+
+    npc_json = fields.get("NPCS", "")
+    body = f"""
+<h1>🌍 编辑世界: {name}</h1>
+<div class="mode-bar">
+  <span style="color:#888;font-size:13px;">表单模式 — 文件: {file_path}</span>
+  <a href="/worlds/{name}?mode=raw">📝 高级模式（源码编辑）</a>
+</div>
+{error_html}
+
+<form method="post" action="/worlds/{name}">
+<input type="hidden" name="mode" value="form">
+
+<div class="card">
+  <div class="world-field">
+    <label>世界名</label>
+    <input type="text" name="field_WORLD_NAME" value="{fields.get('WORLD_NAME',name)}" style="width:200px;">
+  </div>
+
+  {_field("START_SCENE", "开场场景", fields.get("START_SCENE",""), "用户 /start 时显示的文本", 6)}
+  {_field("SYSTEM_PROMPT", "系统提示词", fields.get("SYSTEM_PROMPT",""), "世界观、人物关系、叙事规则的核心入口", 12)}
+  {_field("CHARACTERS", "角色设定", fields.get("CHARACTERS",""), "每行: 角色名: 描述", 4)}
+  {_field("RULES", "剧情规则", fields.get("RULES",""), "每行一条规则", 4)}
+  {_field("LOCATIONS", "地点设定", fields.get("LOCATIONS",""), "每行: 地点名: 描述", 4)}
+  {_field("EVENT_POOL", "事件池", fields.get("EVENT_POOL",""), "每行一个随机事件", 4)}
+
+  <div class="world-field">
+    <label>NPC 配置</label>
+    <div class="hint">JSON 格式，参见 worlds/one.py 中的 NPCS 注释示例</div>
+    <textarea name="field_NPCS" rows="10" style="font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;">{npc_json}</textarea>
+  </div>
+
+  <div style="margin-top:12px;display:flex;gap:8px;">
+    <button class="btn btn-primary" onclick="return confirm('确认保存？')">💾 保存</button>
+    <a href="/worlds" class="btn" style="background:#95a5a6;color:#fff;">取消</a>
+  </div>
+</div>
+</form>
+"""
+    return base(f"世界编辑 - {name}", body)
+
+
+def world_editor_raw(name: str, content: str, file_path: str, error: str = "") -> str:
+    """世界文件编辑：源码模式（高级）。"""
     lines = content.count("\n") + 1
     error_html = f'<div class="flash flash-error">{error}</div>' if error else ""
     body = f"""
 <h1>🌍 编辑世界: {name}</h1>
-<p style="margin-bottom:12px;color:#888;">文件: {file_path}（{lines} 行）</p>
+<div class="mode-bar">
+  <span style="color:#888;font-size:13px;">源码编辑模式 — {lines} 行</span>
+  <a href="/worlds/{name}">📋 普通模式（表单编辑）</a>
+</div>
 {error_html}
 
 <div class="card">
   <form method="post" action="/worlds/{name}">
+    <input type="hidden" name="mode" value="raw">
     <textarea name="content" style="min-height:500px;font-family:'Cascadia Code','Fira Code',monospace;font-size:13px;">{content}</textarea>
     <div style="margin-top:8px;display:flex;gap:8px;">
       <button class="btn btn-primary" onclick="return confirm('确认保存？语法错误可能导致世界加载失败。')">💾 保存</button>
@@ -304,29 +385,93 @@ def world_editor(name: str, content: str, file_path: str, error: str = "") -> st
 
 # ── 关系网络 ────────────────────────────────────────
 
-def relations_page(world_name: str, json_text: str, error: str = "") -> str:
-    """关系网络查看/编辑页。以 JSON 文本形式编辑。"""
-    lines = json_text.count("\n") + 1
+DIM_LABELS = [("affection","好感"),("trust","信任"),("fear","畏惧"),
+              ("dependence","依赖"),("suspicion","怀疑"),("hostility","敌意")]
+
+
+def relations_page_structured(world_name: str, relations: dict, error: str = "") -> str:
+    """关系网络：表格 + 数字输入。"""
     error_html = f'<div class="flash flash-error">{error}</div>' if error else ""
+
+    rows = ""
+    idx = 0
+    for key, rel in relations.items():
+        parts = key.split("->", 1)
+        frm = parts[0].strip() if len(parts) > 0 else ""
+        to = parts[1].strip() if len(parts) > 1 else ""
+        notes = "\n".join(rel.get("notes", []))
+        cells = "".join(
+            f'<td><input type="number" name="rel_{idx}_{dim}" value="{rel.get(dim,0)}" min="0" max="100"></td>'
+            for dim, _ in DIM_LABELS
+        )
+        rows += f"""<tr>
+  <td><input type="text" name="rel_{idx}_from" value="{frm}" style="width:70px;"></td>
+  <td><input type="text" name="rel_{idx}_to" value="{to}" style="width:70px;"></td>
+  {cells}
+  <td><textarea name="rel_{idx}_notes" placeholder="备注，一行一条">{notes}</textarea></td>
+  <td><label style="font-size:11px;white-space:nowrap;"><input type="checkbox" name="rel_{idx}_delete" value="1"> 删</label></td>
+</tr>"""
+        idx += 1
+
+    header_cells = "".join(f'<th>{label}</th>' for _, label in DIM_LABELS)
 
     body = f"""
 <h1>💞 关系网络: {world_name}</h1>
-<p style="margin-bottom:12px;color:#888;">文件: memory/{world_name}_relationships.json（{lines} 行）。直接编辑 JSON 保存即可。</p>
+<div class="mode-bar">
+  <span style="color:#888;font-size:13px;">表格编辑模式（范围 0-100）</span>
+  <a href="/relations?mode=raw">📝 高级模式（JSON 编辑）</a>
+</div>
 {error_html}
 
 <div class="card">
-  <h2>维度说明</h2>
-  <p style="font-size:13px;color:#555;">
-  affection=好感 | trust=信任 | fear=畏惧 | dependence=依赖 | suspicion=怀疑 | hostility=敌意<br>
-  范围 0-100，"角色A->角色B" 为非对称关系键名
-  </p>
-</div>
-
-<div class="card">
   <form method="post" action="/relations">
+  <input type="hidden" name="mode" value="structured">
+  <table class="rel-table">
+  <tr><th>从</th><th>到</th>{header_cells}<th>备注</th><th></th></tr>
+  {rows if rows else '<tr><td colspan="10" class="empty">暂无关系数据</td></tr>'}
+  </table>
+
+  <h2 style="margin-top:20px;">新增关系</h2>
+  <table class="rel-table">
+  <tr>
+    <td><input type="text" name="new_from" placeholder="角色A" style="width:70px;"></td>
+    <td><input type="text" name="new_to" placeholder="角色B" style="width:70px;"></td>
+    {"".join(f'<td><input type="number" name="new_{dim}" value="0" min="0" max="100"></td>' for dim, _ in DIM_LABELS)}
+    <td><textarea name="new_notes" placeholder="备注" style="width:140px;"></textarea></td>
+    <td></td>
+  </tr>
+  </table>
+
+  <div style="margin-top:12px;">
+    <button class="btn btn-primary">💾 保存全部</button>
+    <span style="margin-left:8px;font-size:12px;color:#888;">（勾选"删"的行将被移除）</span>
+  </div>
+  </form>
+</div>
+"""
+    return base("关系网络", body)
+
+
+def relations_page_raw(world_name: str, json_text: str, error: str = "") -> str:
+    """关系网络：原始 JSON 编辑器（高级模式）。"""
+    lines = json_text.count("\n") + 1
+    error_html = f'<div class="flash flash-error">{error}</div>' if error else ""
+    body = f"""
+<h1>💞 关系网络: {world_name}</h1>
+<div class="mode-bar">
+  <span style="color:#888;font-size:13px;">JSON 编辑模式</span>
+  <a href="/relations">📋 普通模式（表格编辑）</a>
+</div>
+{error_html}
+<div class="card">
+  <p style="font-size:13px;color:#555;margin-bottom:8px;">
+  affection=好感 | trust=信任 | fear=畏惧 | dependence=依赖 | suspicion=怀疑 | hostility=敌意
+  </p>
+  <form method="post" action="/relations">
+    <input type="hidden" name="mode" value="raw">
     <textarea name="content" style="min-height:400px;font-family:'Cascadia Code','Fira Code',monospace;font-size:13px;">{json_text}</textarea>
-    <div style="margin-top:8px;display:flex;gap:8px;">
-      <button class="btn btn-primary" onclick="return confirm('确认保存？JSON 格式错误可能导致关系网络加载失败。')">💾 保存</button>
+    <div style="margin-top:8px;">
+      <button class="btn btn-primary" onclick="return confirm('确认保存？')">💾 保存</button>
     </div>
   </form>
 </div>

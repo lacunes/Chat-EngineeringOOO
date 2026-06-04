@@ -107,7 +107,7 @@ def register_routes(app: Flask) -> None:
     @require_auth
     def view_long_memory():
         ctx = _ctx()
-        return templates.long_memory(
+        return templates.long_memory_cards(
             ctx.memory.long_memory,
             settings.LONG_MEMORY_MAX_ITEMS,
         )
@@ -192,7 +192,6 @@ def register_routes(app: Flask) -> None:
     @app.route("/worlds/<name>", methods=["GET"])
     @require_auth
     def edit_world(name: str):
-        # 安全检查：防止路径穿越
         if not name.isidentifier():
             return _flash_redirect("/worlds", "无效的世界名", "error")
 
@@ -200,8 +199,25 @@ def register_routes(app: Flask) -> None:
         if not file_path.exists():
             return _flash_redirect("/worlds", f"世界 '{name}' 不存在", "error")
 
-        content = file_path.read_text(encoding="utf-8")
-        return templates.world_editor(name, content, str(file_path.relative_to(settings.BASE_DIR)))
+        if request.args.get("mode") == "raw":
+            content = file_path.read_text(encoding="utf-8")
+            return templates.world_editor_raw(
+                name, content, str(file_path.relative_to(settings.BASE_DIR)),
+            )
+
+        # 表单模式：解析 .py 提取字段
+        try:
+            fields = _parse_world_py(file_path)
+        except Exception as exc:
+            logger.warning("Failed to parse world %s: %s", name, exc)
+            content = file_path.read_text(encoding="utf-8")
+            return templates.world_editor_raw(
+                name, content, str(file_path.relative_to(settings.BASE_DIR)),
+                error=f"无法解析世界文件，请使用源码模式编辑: {exc}",
+            )
+        return templates.world_form(
+            name, fields, str(file_path.relative_to(settings.BASE_DIR)),
+        )
 
     @app.route("/worlds/<name>", methods=["POST"])
     @require_auth
@@ -213,19 +229,42 @@ def register_routes(app: Flask) -> None:
         if not file_path.exists():
             return _flash_redirect("/worlds", f"世界 '{name}' 不存在", "error")
 
-        content = request.form.get("content", "")
-        # 检查 Python 语法，防止保存后 Bot 启动失败
-        try:
-            ast.parse(content)
-        except SyntaxError as exc:
-            return templates.world_editor(
-                name, content, str(file_path.relative_to(settings.BASE_DIR)),
-                error=f"语法错误: {exc}",
-            )
+        mode = request.form.get("mode", "form")
 
-        file_path.write_text(content, encoding="utf-8")
-        logger.info("Web panel: saved world file %s", name)
-        return _flash_redirect(f"/worlds/{name}", f"{name}.py 已保存")
+        if mode == "raw":
+            content = request.form.get("content", "")
+            try:
+                ast.parse(content)
+            except SyntaxError as exc:
+                return templates.world_editor_raw(
+                    name, content, str(file_path.relative_to(settings.BASE_DIR)),
+                    error=f"语法错误: {exc}",
+                )
+            file_path.write_text(content, encoding="utf-8")
+            logger.info("Web panel: saved world file %s (raw)", name)
+            return _flash_redirect(f"/worlds/{name}", f"{name}.py 已保存")
+
+        # 表单模式：收集字段值，写回 .py
+        new_values: dict[str, str] = {}
+        for field in ["WORLD_NAME", "START_SCENE", "SYSTEM_PROMPT",
+                       "CHARACTERS", "RULES", "LOCATIONS", "EVENT_POOL", "NPCS"]:
+            val = (request.form.get(f"field_{field}") or "").strip()
+            # CHARACTERS, RULES, LOCATIONS, EVENT_POOL 跳过空值（保持原样）
+            new_values[field] = val
+
+        try:
+            fields = _parse_world_py(file_path)
+            _write_world_py(file_path, fields, new_values)
+            logger.info("Web panel: saved world file %s (form)", name)
+            return _flash_redirect(f"/worlds/{name}", f"{name}.py 已保存")
+        except Exception as exc:
+            logger.error("Failed to save world %s: %s", name, exc)
+            fields_fallback = {k: v for k, v in new_values.items()}
+            return templates.world_form(
+                name, fields_fallback,
+                str(file_path.relative_to(settings.BASE_DIR)),
+                error=f"保存失败: {exc}",
+            )
 
     @app.route("/worlds/switch", methods=["POST"])
     @require_auth
@@ -267,35 +306,98 @@ def register_routes(app: Flask) -> None:
     def view_relations():
         ctx = _ctx()
         rm = ctx.relationship_manager
-        data = {
-            "characters": rm.characters,
-            "relations": rm.relations,
-            "_reply_count_since_extract": rm._reply_count_since_extract,
-        }
-        json_text = json.dumps(data, ensure_ascii=False, indent=2)
-        return templates.relations_page(ctx.world.WORLD_NAME, json_text)
+        if request.args.get("mode") == "raw":
+            data = {
+                "characters": rm.characters,
+                "relations": rm.relations,
+                "_reply_count_since_extract": rm._reply_count_since_extract,
+            }
+            return templates.relations_page_raw(
+                ctx.world.WORLD_NAME, json.dumps(data, ensure_ascii=False, indent=2),
+            )
+        return templates.relations_page_structured(
+            ctx.world.WORLD_NAME, rm.relations,
+        )
 
     @app.route("/relations", methods=["POST"])
     @require_auth
     def save_relations():
         ctx = _ctx()
-        content = request.form.get("content", "")
-        try:
-            data = json.loads(content)
-            if not isinstance(data, dict):
-                raise ValueError("JSON 必须是对象")
-            ctx.relationship_manager.characters = data.get("characters", [])
-            ctx.relationship_manager.relations = data.get("relations", {})
-            ctx.relationship_manager._reply_count_since_extract = data.get(
-                "_reply_count_since_extract", 0,
-            )
-            ctx.relationship_manager.save()
-            logger.info("Web panel: saved relationships for %s", ctx.world.WORLD_NAME)
-            return _flash_redirect("/relations", "关系网络已保存")
-        except (json.JSONDecodeError, ValueError) as exc:
-            return templates.relations_page(
-                ctx.world.WORLD_NAME, content, error=f"JSON 格式错误: {exc}",
-            )
+        mode = request.form.get("mode", "structured")
+
+        if mode == "raw":
+            content = request.form.get("content", "")
+            try:
+                data = json.loads(content)
+                if not isinstance(data, dict):
+                    raise ValueError("JSON 必须是对象")
+                ctx.relationship_manager.characters = data.get("characters", [])
+                ctx.relationship_manager.relations = data.get("relations", {})
+                ctx.relationship_manager._reply_count_since_extract = data.get(
+                    "_reply_count_since_extract", 0,
+                )
+                ctx.relationship_manager.save()
+                return _flash_redirect("/relations", "关系网络已保存")
+            except (json.JSONDecodeError, ValueError) as exc:
+                return templates.relations_page_raw(
+                    ctx.world.WORLD_NAME, content, error=f"JSON 格式错误: {exc}",
+                )
+
+        # 结构化模式：从表单字段重建 relations
+        new_relations: dict[str, dict] = {}
+        dims = ["affection", "trust", "fear", "dependence", "suspicion", "hostility"]
+
+        # 处理已有关系
+        i = 0
+        while f"rel_{i}_from" in request.form:
+            if request.form.get(f"rel_{i}_delete") == "1":
+                i += 1
+                continue
+            frm = (request.form.get(f"rel_{i}_from") or "").strip()
+            to = (request.form.get(f"rel_{i}_to") or "").strip()
+            if frm and to and frm != to:
+                key = f"{frm}->{to}"
+                rel = {}
+                for dim in dims:
+                    try:
+                        rel[dim] = max(0, min(100, int(request.form.get(f"rel_{i}_{dim}", "0") or 0)))
+                    except ValueError:
+                        rel[dim] = 0
+                notes_text = (request.form.get(f"rel_{i}_notes") or "").strip()
+                rel["notes"] = [n.strip() for n in notes_text.split("\n") if n.strip()]
+                rel["last_updated"] = 0
+                new_relations[key] = rel
+            i += 1
+
+        # 新增关系
+        new_from = (request.form.get("new_from") or "").strip()
+        new_to = (request.form.get("new_to") or "").strip()
+        if new_from and new_to and new_from != new_to:
+            key = f"{new_from}->{new_to}"
+            rel = {}
+            for dim in dims:
+                try:
+                    rel[dim] = max(0, min(100, int(request.form.get(f"new_{dim}", "0") or 0)))
+                except ValueError:
+                    rel[dim] = 0
+            notes_text = (request.form.get("new_notes") or "").strip()
+            rel["notes"] = [n.strip() for n in notes_text.split("\n") if n.strip()]
+            rel["last_updated"] = 0
+            new_relations[key] = rel
+
+        # 更新角色列表
+        chars: set[str] = set()
+        for key in new_relations:
+            parts = key.split("->", 1)
+            if len(parts) == 2:
+                chars.add(parts[0].strip())
+                chars.add(parts[1].strip())
+
+        ctx.relationship_manager.characters = sorted(chars)
+        ctx.relationship_manager.relations = new_relations
+        ctx.relationship_manager.save()
+        logger.info("Web panel: saved relationships (structured) for %s", ctx.world.WORLD_NAME)
+        return _flash_redirect("/relations", "关系网络已保存")
 
     # ── 日志 ────────────────────────────────────────
 
@@ -341,7 +443,213 @@ def _flash_redirect(url: str, message: str = "", kind: str = "success") -> Respo
     return _redirect(urlunparse(parts))
 
 
-def _update_env(key: str, value: str) -> None:
+# ═══════════════════════════════════════════════════════════
+# 世界文件解析与写回
+# ═══════════════════════════════════════════════════════════
+
+def _parse_world_py(path: Path) -> dict[str, str]:
+    """解析世界 .py 文件，提取可编辑字段的字符串表示。
+
+    返回: {"WORLD_NAME": "one", "START_SCENE": "(...)", ...}
+    对于复杂类型（dict/list），返回格式化的文本表示。
+    """
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    fields: dict[str, str] = {}
+
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name):
+                continue
+            name = target.id
+            if name.startswith("_"):
+                continue
+            try:
+                fields[name] = _ast_value_to_form(node.value)
+            except Exception:
+                fields[name] = ast.get_source_segment(source, node.value) or ""
+
+    return fields
+
+
+def _ast_value_to_form(node) -> str:
+    """将 AST 节点转换为表单可显示的字符串。"""
+    if isinstance(node, ast.Constant):
+        val = node.value
+        if isinstance(val, str):
+            return val
+        return str(val)
+
+    if isinstance(node, ast.JoinedStr):  # f-string
+        # 简单场景：取字面量部分
+        parts = []
+        for part in node.values:
+            if isinstance(part, ast.Constant):
+                parts.append(str(part.value))
+            else:
+                parts.append("{...}")
+        return "".join(parts)
+
+    if isinstance(node, ast.List):
+        items = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                items.append(elt.value)
+            else:
+                items.append(ast.get_source_segment(ast.dump.__code__, elt) or str(elt))  # fallback
+        return "\n".join(items)
+
+    if isinstance(node, ast.Dict):
+        lines = []
+        for k, v in zip(node.keys, node.values):
+            key_str = ""
+            if isinstance(k, ast.Constant):
+                key_str = str(k.value)
+            else:
+                key_str = f"({ast.dump(k)})"
+
+            val_str = ""
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                val_str = v.value
+            else:
+                # 用原始源码
+                try:
+                    val_str = ast.get_source_segment(
+                        ast.parse("").body if False else ast.Module(body=[], type_ignores=[]),
+                        v,
+                    ) or ""
+                except Exception:
+                    val_str = ""
+
+            if val_str:
+                lines.append(f"{key_str}: {val_str}")
+        return "\n".join(lines)
+
+    # 其他复杂类型：用 ast.unparse（Python 3.9+）
+    try:
+        return ast.unparse(node)
+    except AttributeError:
+        pass
+
+    return str(ast.dump(node))
+
+
+def _write_world_py(path: Path, fields: dict[str, str], new_values: dict[str, str]) -> None:
+    """将表单值写回 .py 文件，替换对应顶层赋值。
+
+    策略：按行分割原文件 → 找到每个字段的起止行 → 替换为新值 → 验证语法。
+    """
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    # 收集每个字段的行范围
+    field_ranges: dict[str, tuple[int, int]] = {}  # name → (start_line, end_line) 1-indexed
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and not target.id.startswith("_"):
+                end = getattr(node, "end_lineno", node.lineno)
+                field_ranges[target.id] = (node.lineno, end)
+                break
+
+    lines = source.splitlines()
+
+    # 按行号降序替换（避免行号偏移）
+    for name, (start, end) in sorted(field_ranges.items(), key=lambda x: -x[1][0]):
+        if name not in new_values:
+            continue
+        new_val = new_values[name]
+        if new_val == "":  # 空值跳过，保持不变
+            continue
+
+        new_lines = _format_field_assignment(name, new_val)
+        lines[start - 1 : end] = new_lines
+
+    new_source = "\n".join(lines) + "\n"
+
+    # 验证语法
+    try:
+        ast.parse(new_source)
+    except SyntaxError as exc:
+        raise ValueError(f"生成的代码有语法错误: {exc}") from exc
+
+    # 备份 → 写入
+    backup = path.with_suffix(".py.bak")
+    try:
+        backup.write_text(source, encoding="utf-8")
+    except Exception:
+        pass
+    path.write_text(new_source, encoding="utf-8")
+
+
+def _format_field_assignment(name: str, value: str) -> list[str]:
+    """将字段名和表单值格式化为 Python 赋值语句行列表。"""
+    # 判断值的类型并选择合适的格式
+    # 简单字符串（单行）→ NAME = "value"
+    # 多行字符串 → NAME = ( "line1\n" "line2\n" )
+    # 含冒号的行 → 可能是 dict，保持原样
+
+    if "\n" not in value:
+        # 单行值
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return [f'{name} = "{escaped}"']
+
+    # 多行值 → 用括号包裹的三引号风格更安全
+    if name in ("START_SCENE", "SYSTEM_PROMPT"):
+        # 用括号 + 多行字符串字面量
+        lines = [f"{name} = ("]
+        for line in value.split("\n"):
+            escaped = line.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(f'    "{escaped}\\n"')
+        lines.append(")")
+        return lines
+
+    if name in ("CHARACTERS", "LOCATIONS"):
+        # dict 格式：每行 "key: value"
+        lines = [f"{name}: dict[str, str] = {{"]
+        for line in value.split("\n"):
+            line = line.strip()
+            if ":" in line:
+                k, v = line.split(":", 1)
+                k, v = k.strip(), v.strip()
+                ek = k.replace("\\", "\\\\").replace('"', '\\"')
+                ev = v.replace("\\", "\\\\").replace('"', '\\"')
+                lines.append(f'    "{ek}": "{ev}",')
+        lines.append("}")
+        return lines
+
+    if name in ("RULES", "EVENT_POOL"):
+        # list 格式：每行一条
+        lines = [f"{name}: list[str] = ["]
+        for line in value.split("\n"):
+            line = line.strip()
+            if line:
+                escaped = line.replace("\\", "\\\\").replace('"', '\\"')
+                lines.append(f'    "{escaped}",')
+        lines.append("]")
+        return lines
+
+    if name == "NPCS":
+        # JSON 格式 → 保持为 dict 字面量
+        try:
+            import json as _json
+            data = _json.loads(value)
+            formatted = _json.dumps(data, ensure_ascii=False, indent=4)
+            # 将 JSON 转为 Python dict 格式（简单替换）
+            lines = [f"{name}: dict[str, dict] = {formatted}"]
+            return lines
+        except Exception:
+            pass
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return [f'{name} = "{escaped}"']
+
+    # 默认
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return [f'{name} = """{escaped}"""']
     """更新 .env 文件中的键值对，保留原有格式。"""
     env_path = settings.BASE_DIR / ".env"
     if env_path.exists():
