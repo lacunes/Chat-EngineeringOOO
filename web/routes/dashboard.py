@@ -1,6 +1,7 @@
 """仪表盘路由。"""
 
 import logging
+import re
 import time
 
 from flask import Blueprint, render_template, request, redirect, url_for
@@ -12,6 +13,12 @@ from web.routes.auth import login_required
 logger = logging.getLogger(__name__)
 
 dashboard_bp = Blueprint("dashboard", __name__)
+
+# 最近错误摘要时跳过的无意义行
+_SKIP_ERROR_PATTERNS = [
+    re.compile(r"No error handlers are registered"),
+    re.compile(r"unhandled exception", re.I),
+]
 
 
 @dashboard_bp.route("/")
@@ -26,14 +33,38 @@ def index():
     except Exception:
         log_size = "N/A"
 
-    # 最近错误摘要
+    # 最近错误摘要：跳过无意义的框架提示，展示真正的异常原因
     error_summary = ""
     try:
         with open(log_path, "r", encoding="utf-8") as f:
-            for line in reversed(f.readlines()):
-                if "ERROR" in line:
-                    error_summary = line.strip()[-200:]
+            all_lines = f.readlines()
+
+        # 从后往前找真正的 ERROR，跳过框架噪音
+        for line in reversed(all_lines):
+            if "ERROR" not in line and "CRITICAL" not in line:
+                continue
+            if any(p.search(line) for p in _SKIP_ERROR_PATTERNS):
+                continue
+            error_summary = line.strip()[-300:]
+            break
+
+        # 如果上面没找到，再看看有没有带 Traceback 的上下文（真正的异常通常在 ERROR 前一行）
+        if not error_summary:
+            for i in range(len(all_lines) - 1, -1, -1):
+                if "Traceback (most recent call last)" in all_lines[i]:
+                    # 取这一行和下一行作为摘要
+                    excerpt = all_lines[i].strip()
+                    if i + 1 < len(all_lines):
+                        excerpt += " | " + all_lines[i + 1].strip()[:200]
+                    error_summary = excerpt[-300:]
                     break
+
+        # 过滤敏感信息
+        if error_summary:
+            import os
+            for secret in [os.getenv("BOT_TOKEN", ""), os.getenv("DEEPSEEK_KEY", ""), os.getenv("WEB_PASSWORD", "")]:
+                if secret and len(secret) > 4:
+                    error_summary = error_summary.replace(secret, "***")
     except Exception:
         pass
 

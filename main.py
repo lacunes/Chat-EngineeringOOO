@@ -1,10 +1,19 @@
 import logging
+import re
 import sys
 import threading
 import time
+import traceback
 
 import requests
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from bot.deepseek_client import DeepSeekClient
 from bot.memory_manager import MemoryManager
@@ -78,6 +87,68 @@ def set_bot_commands() -> None:
         logging.getLogger(__name__).warning("Failed to set command menu: %s", exc)
 
 
+# ── 全局错误处理器 ──────────────────────────────────
+
+# 敏感信息过滤正则（防止泄露到日志）
+_SENSITIVE_FILTERS = [
+    (re.compile(r'sk-[a-zA-Z0-9]{10,}'), 'sk-***'),
+    (re.compile(r'\d{8,10}:[a-zA-Z0-9_-]{25,}'), '***:***'),
+]
+
+
+def _filter_sensitive(text: str) -> str:
+    for pattern, replacement in _SENSITIVE_FILTERS:
+        text = pattern.sub(replacement, text)
+    # 额外：显式过滤 .env 中的敏感值
+    for secret in [settings.BOT_TOKEN, settings.DEEPSEEK_KEY, settings.WEB_PASSWORD]:
+        if secret and len(secret) > 4:
+            text = text.replace(secret, "***")
+    return text
+
+
+async def error_handler(update: object | None, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """全局错误处理器。
+
+    记录完整异常信息（含 traceback 和 update 内容），
+    尝试给用户返回温和提示，不导致主进程退出。
+    """
+    logger = logging.getLogger("telegram.error_handler")
+
+    # 收集异常信息
+    exc = context.error
+    tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+
+    # 收集 update 摘要
+    update_info = "None"
+    if update is not None and isinstance(update, Update):
+        try:
+            update_info = update.to_json()
+        except Exception:
+            update_info = str(update)
+
+    # 过滤敏感信息后记录完整堆栈
+    safe_tb = _filter_sensitive("".join(tb_lines))
+    safe_update = _filter_sensitive(update_info)
+
+    logger.error(
+        "Unhandled exception in Telegram handler\n"
+        "── Update ──\n%s\n"
+        "── Traceback ──\n%s",
+        safe_update, safe_tb,
+    )
+
+    # 尝试给用户返回温和提示
+    if update is not None and isinstance(update, Update) and update.effective_chat:
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="刚才处理消息时出了一点问题，已经记录日志。",
+            )
+        except Exception:
+            # 发送提示失败也不要让错误处理器崩溃
+            pass
+
+
 def main() -> None:
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -99,6 +170,9 @@ def main() -> None:
     set_bot_commands()
 
     app = ApplicationBuilder().token(settings.BOT_TOKEN).build()
+
+    # 注册全局错误处理器（必须在 add_handler 之前注册）
+    app.add_error_handler(error_handler)
 
     # 命令 → handler 映射（实例方法，必须在 RoleplayBot 创建后定义）
     handler_map = {
