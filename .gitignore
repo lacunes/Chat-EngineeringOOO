@@ -13,6 +13,7 @@ memory/
 /关系网络创建.txt
 /计划书.txt
 /计划书2.txt
+/时间.txt
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
