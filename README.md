@@ -532,14 +532,19 @@ RELATION_SIGNIFICANT_THRESHOLD=3  # 变化超过此值标记 ⚡
 ## 工作原理
 
 ```
-每次 AI 回复 → 检查轮次间隔
-  ├─ 未到阈值 → 不动
-  └─ 到达阈值 → 时段 +1（清晨→上午→...→深夜→清晨+1天）
+用户消息 → 关键词检测
+  ├─ "第二天早上" → 跨天到清晨
+  ├─ "吃完饭后" → 跳到傍晚
+  ├─ "过了一会儿" → 推进一个时段
+  └─ 无时间信息 → 不动，保持当前时段
+
+同个时段超过 80 轮 → 温和提示 /next_time，不强制推进
+/c 续写 → 永远不推进时间
 ```
 
-- 默认每 6 次 AI 回复自动推进一个时段
-- 用户可手动 `/next_time` 或 `/next_day`
-- 推进到新一天时自动生成"昨日生活摘要"
+- **用户驱动**：只有用户消息中明确出现时间跳转词才推进
+- **手动命令**：`/next_time` `/next_day` 始终可用
+- 深夜不再自动跨天（除非命中跨天关键词）
 
 ## 时间注入
 
@@ -562,7 +567,10 @@ system prompt 会包含时间背景：
 ## 配置
 
 ```env
-TIME_ADVANCE_INTERVAL=6  # 每 N 次 AI 回复自动推进时段
+TIME_AUTO_ADVANCE_ENABLED=false       # 关闭机械自动推进
+TIME_USER_DRIVEN_ADVANCE_ENABLED=true # 启用关键词检测推进
+TIME_LONG_SCENE_HINT_THRESHOLD=80     # 同个时段超 N 轮给提示
+TIME_AUTO_CROSS_DAY=false             # 禁止普通推进跨天
 ```
 
 ---

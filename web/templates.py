@@ -486,7 +486,8 @@ TIME_PERIOD_OPTIONS = ["清晨", "上午", "中午", "下午", "傍晚", "夜晚
 SEASON_OPTIONS = ["春", "夏", "秋", "冬"]
 
 
-def time_page(world_name: str, day: int, time_period: str, season: str, recent_days: list[str]) -> str:
+def time_page(world_name: str, day: int, time_period: str, season: str, recent_days: list[str],
+              rounds_in_period: int = 0) -> str:
     period_select = "".join(
         f'<option value="{p}"{" selected" if p == time_period else ""}>{p}</option>'
         for p in TIME_PERIOD_OPTIONS
@@ -508,8 +509,10 @@ def time_page(world_name: str, day: int, time_period: str, season: str, recent_d
   </td>
 </tr>"""
 
+    rounds_note = f"（已持续 {rounds_in_period} 轮）" if rounds_in_period else ""
     body = f"""
 <h1>⏰ 时间状态: {world_name}</h1>
+<p style="margin-bottom:6px;color:#888;">当前时段{rounds_note}</p>
 
 <div class="card">
   <form method="post" action="/time">

@@ -219,14 +219,21 @@ class RoleplayBot:
                 "如有需要可使用：\n"
                 "/memo ..."
             )
+
+        # 长场景温和提示
+        hint = self.time_manager.get_long_scene_hint()
+        if hint:
+            reply += hint
+
         return reply
 
     async def continue_story(self) -> str:
-        # 续写本质上也是一次模型调用，只是用户输入固定为 CONTINUE_PROMPT。
+        # 续写永远不推进时间，也不触发关键词检测。
         return await self.generate_reply(
             user_text=prompts.CONTINUE_PROMPT,
             max_tokens=utils.get_reply_length(),
             length_notice="\n\n（这一段似乎还没说完，可以继续发送 /c。）",
+            skip_time_advance=True,
         )
 
     async def generate_reply(
@@ -234,6 +241,7 @@ class RoleplayBot:
         user_text: str,
         length_notice: str,
         max_tokens: int | None = None,
+        skip_time_advance: bool = False,
     ) -> str:
         """统一处理普通回复和续写回复的公共流程。
 
@@ -245,6 +253,22 @@ class RoleplayBot:
         stage_directions = self.npc_manager.get_stage_directions(user_text)
 
         self.memory.add_user_message(user_text)
+
+        # ── 用户驱动时间推进（关键词检测；/c 续写跳过）──
+        if not skip_time_advance:
+            advance = self.time_manager.detect_advance(
+                user_text, self.time_manager.time_period,
+            )
+            if advance:
+                action = advance["action"]
+                logger.info("Time advance by user message: %s", advance["reason"])
+                if action == "advance_day":
+                    self.time_manager.advance_day()
+                elif action == "advance_period":
+                    self.time_manager.advance_period()
+                elif action == "jump_to" and advance.get("target"):
+                    self.time_manager.jump_to(advance["target"])
+                self.time_manager.mark_period_start(self.memory.message_count)
 
         # 构建系统提示词：如果有NPC舞台指令，先注入处理指令再附舞台指令
         system_prompt = self.world.SYSTEM_PROMPT

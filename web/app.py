@@ -415,6 +415,7 @@ def register_routes(app: Flask) -> None:
             time_period=tm.time_period,
             season=tm.season,
             recent_days=tm.recent_days,
+            rounds_in_period=tm.rounds_in_current_period,
         )
 
     @app.route("/time", methods=["POST"])

@@ -219,8 +219,17 @@ RELATION_SIGNIFICANT_THRESHOLD = _get_int("RELATION_SIGNIFICANT_THRESHOLD", 3)
 # 时间流逝配置
 # ═══════════════════════════════════════════════════════════════
 
-# 每 N 次 AI 回复后自动推进一个时段（默认 6）。
-TIME_ADVANCE_INTERVAL = _get_int("TIME_ADVANCE_INTERVAL", 6)
+# 是否启用机械式自动推进（默认关闭，改为用户驱动）。
+TIME_AUTO_ADVANCE_ENABLED = os.getenv("TIME_AUTO_ADVANCE_ENABLED", "false").strip().lower() == "true"
+
+# 是否启用用户消息关键词检测推进（默认开启）。
+TIME_USER_DRIVEN_ADVANCE_ENABLED = os.getenv("TIME_USER_DRIVEN_ADVANCE_ENABLED", "true").strip().lower() != "false"
+
+# 同个时段超过 N 轮时，在回复末尾追加温和提示（默认 80）。
+TIME_LONG_SCENE_HINT_THRESHOLD = _get_int("TIME_LONG_SCENE_HINT_THRESHOLD", 80)
+
+# 普通时段推进（非跨天关键词）是否允许从深夜跨到第二天（默认 false）。
+TIME_AUTO_CROSS_DAY = os.getenv("TIME_AUTO_CROSS_DAY", "false").strip().lower() == "true"
 
 # ═══════════════════════════════════════════════════════════════
 # Web 管理面板配置
