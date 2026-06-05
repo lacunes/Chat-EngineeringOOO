@@ -85,11 +85,10 @@ class MemoryManager:
         messages.extend(self.memory[-settings.CONTEXT_LENGTH:])
         return messages
 
-    async def compress_old_memory(self, client) -> None:
-        # 短期记忆过长时，把较早的一半压缩成摘要。
-        # 这样不会无限增长，也能保留旧剧情主线。
+    async def compress_old_memory(self, client) -> bool:
+        """短期记忆过长时压缩旧对话。返回是否实际执行了压缩。"""
         if len(self.memory) <= settings.MEMORY_MAX_LENGTH:
-            return
+            return False
 
         old_size = len(self.memory)
         old_half = self.memory[: old_size // 2]
@@ -118,6 +117,7 @@ class MemoryManager:
             self.last_auto_memory_index = len(self.memory)
         self.save_memory()
         logger.info("Short memory compressed: %s -> %s", old_size, len(self.memory))
+        return True
 
     async def auto_extract_long_memory(self, client) -> None:
         # 每隔固定消息数，从最近对话中抽取稳定事实。

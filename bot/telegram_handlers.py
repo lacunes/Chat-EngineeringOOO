@@ -328,8 +328,10 @@ class RoleplayBot:
         async def _run():
             self._bg_maintenance_running = True
             try:
-                await self.memory.compress_old_memory(self.client)
-                await self.memory.auto_extract_long_memory(self.client)
+                did_compress = await self.memory.compress_old_memory(self.client)
+                # 压缩已包含摘要+精炼，跳过冗余的长期记忆抽取
+                if not did_compress:
+                    await self.memory.auto_extract_long_memory(self.client)
                 await self.relationship_manager.auto_extract(
                     self.memory.memory, self.client,
                 )
