@@ -14,6 +14,7 @@ memory/
 /计划书.txt
 /计划书2.txt
 /时间.txt
+/时间优化-1.txt
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
