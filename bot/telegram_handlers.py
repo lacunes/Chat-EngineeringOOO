@@ -232,10 +232,15 @@ class RoleplayBot:
                 + stage_directions
             )
 
-        # ── 注入关系网络摘要 ──
+        # ── 注入关系网络指令 + 摘要 ──
         relation_summary = self.relationship_manager.get_summary()
         if relation_summary:
-            system_prompt = system_prompt + relation_summary
+            system_prompt = (
+                system_prompt
+                + "\n"
+                + prompts.RELATION_INJECT_INSTRUCTION
+                + relation_summary
+            )
 
         # ── 主 API 调用（关键路径，不阻塞）──
         reply, finish = await self.client.chat(

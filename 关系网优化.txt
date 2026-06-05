@@ -1,0 +1,113 @@
+
+现在 Web 管理面板有一个明显问题：
+很多页面直接暴露源文件内容，例如：
+- 世界编辑页面直接编辑 worlds/one.py 的源码
+- 长期记忆页面直接显示 JSON/伪 JSON 行
+- 关系网络页面直接编辑 memory/one_relationships.json
+
+这虽然能用，但可读性很差，普通用户容易改坏格式。我希望你把 Web 面板改造成“结构化、可读性强、表单化”的管理后台。
+
+请先只做方案，不要马上写代码。
+
+目标：
+
+1. Web 页面默认不再直接展示源代码或完整 JSON。
+   应该用表单、卡片、表格来展示和编辑。
+
+2. 保留“高级编辑/源码编辑”入口。
+   例如：
+   - 普通模式：表单编辑
+   - 高级模式：查看/编辑原始 JSON 或 Python 源文件
+   这样出问题时还能手动修。
+
+3. 世界编辑页面改造：
+   不要默认显示整个 worlds/one.py 源码。
+   请解析或抽取其中常用字段，以表单方式显示：
+   - WORLD_NAME
+   - START_SCENE
+   - SYSTEM_PROMPT
+   - CHARACTERS
+   - NPCS
+   - EVENT_POOL
+   - 其他世界设定字段
+
+   如果当前 worlds/one.py 是 Python 文件，不方便安全解析，就先做最小可用版：
+   - 提供“世界概要/开场白/系统提示词/角色设定/剧情规则”几个大文本框
+   - 保存时仍然写回原文件，但必须尽量避免破坏 Python 语法
+   - 或者提出更好的迁移方案：把世界设定从 .py 源码迁移到 JSON/YAML，再由 worlds/one.py 加载配置
+
+4. 长期记忆页面改造：
+   当前长期记忆显示成一行行 JSON/伪 JSON，很难读。
+   请改成卡片或表格：
+   每条记忆显示：
+   - 类型 type
+   - 类型中文名
+   - 内容 content
+   - 重要度 importance，如果有
+   - 时间/轮次，如果有
+   - 操作：编辑、删除、保存
+
+   新增记忆时，也用表单：
+   - 类型下拉框：fact / relationship / commitment / habit / event / preference / plot / other
+   - 内容输入框
+   - 重要度输入或下拉
+   - 保存按钮
+
+   保存时必须保证底层 JSON 格式正确。
+
+5. 关系网络页面改造：
+   当前页面直接显示 one_relationships.json。
+   请改成关系卡片或表格：
+   每组关系显示：
+   - 角色 A
+   - 角色 B
+   - affection 好感
+   - trust 信任
+   - fear 畏惧
+   - dependence 依赖
+   - suspicion 怀疑
+   - hostility 敌意
+   - notes 备注列表
+   - last_updated
+
+   数值字段用 number input 或滑块，范围 0-100。
+   notes 用可增删的文本列表。
+   支持新增关系、删除关系、编辑关系。
+   保存时写回 memory/{world}_relationships.json。
+
+6. 要特别注意安全：
+   - 不要把 .env、token、API key 暴露到 Web 页面
+   - 不要让普通页面随意编辑任意路径文件
+   - 只能编辑明确允许的文件，比如 worlds/、memory/ 下的指定文件
+   - 保存 JSON 前必须验证格式
+   - 写文件前尽量备份或使用临时文件原子替换
+
+7. 多世界兼容：
+   当前 Web 页面要支持 one / two / three 等不同世界。
+   例如：
+   /worlds/one
+   /relations?world=one
+   /memory/long?world=one
+
+   不要把不同世界的数据混在一起。
+
+8. 请尽量保持现有项目结构：
+   - Web 路由仍然放在 web/app.py
+   - HTML 模板仍然放在 web/templates.py，除非你认为拆分模板文件更合理
+   - 不要重写整个项目
+   - 不要引入重量级前端框架
+   - 优先用原生 HTML + CSS + 少量 JS
+   - 不要破坏 Telegram bot 主流程
+
+9. 请分阶段做，不要一次性大改。
+
+我希望你先输出实施方案，包括：
+- 当前 Web 面板存在哪些可读性问题
+- 哪些页面需要改
+- 每个页面应该怎么改成表单/卡片/表格
+- 需要新增哪些辅助函数
+- 数据读写如何保证安全
+- 最小可用版本先做哪几项
+- 哪些地方风险较高，需要我确认
+
+等我确认方案后，你再开始写代码。
