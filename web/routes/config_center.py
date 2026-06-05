@@ -242,9 +242,10 @@ def save():
                 rng = cfg.get("range")
                 if rng:
                     min_v, max_v = rng
+                    # 范围仅作推荐，不强制限制。超出时仅记日志。
                     if not (min_v <= int_val <= max_v):
-                        logger.info("Config '%s' = %s out of range %s-%s, allowing with warning",
-                                    key, int_val, min_v, max_v)
+                        logger.debug("Config '%s' = %s outside recommended range %s-%s",
+                                     key, int_val, min_v, max_v)
                 updates[key] = str(int_val)
 
             elif ctype == "float":

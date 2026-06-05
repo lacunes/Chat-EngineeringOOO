@@ -41,13 +41,11 @@
 
         {% elif cfg.type == 'float' %}
           <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}"
-                 {% if cfg.range %}min="{{ cfg.range[0] }}" max="{{ cfg.range[1] }}"{% endif %}
                  {% if cfg.step %}step="{{ cfg.step }}"{% else %}step="0.01"{% endif %}>
 
         {% else %}
           {# int 或其他 #}
-          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}"
-                 {% if cfg.range %}min="{{ cfg.range[0] }}" max="{{ cfg.range[1] }}"{% endif %}>
+          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}">
         {% endif %}
       </div>
     </div>

@@ -64,12 +64,41 @@
 </div>
 
 <!-- 最近错误 -->
-{% if error_summary %}
-<div class="card">
+{% if error_info %}
+<div class="card" style="border-color:{% if error_info.is_network %}rgba(243,156,18,.4){% else %}rgba(231,76,60,.4){% endif %};">
   <div class="card-header">
-    <h2>⚠ 最近错误摘要</h2>
+    <h2 style="color:{% if error_info.is_network %}var(--accent-orange){% else %}var(--accent-red){% endif %};">
+      {% if error_info.is_network %}⚠️{% else %}❌{% endif %}
+      {% if error_info.is_network %}网络异常（已自动重试）{% else %}最近异常{% endif %}
+    </h2>
   </div>
-  <div class="log-line error">{{ error_summary }}</div>
+
+  <div style="margin-bottom:12px;">
+    {% if error_info.exception_type %}
+    <div class="stat-item" style="margin-bottom:8px;">
+      <div class="stat-label">异常类型</div>
+      <div class="stat-value" style="font-size:15px;color:{% if error_info.is_network %}var(--accent-orange){% else %}var(--accent-red){% endif %};">{{ error_info.exception_type }}</div>
+    </div>
+    {% endif %}
+
+    {% if error_info.exception_message %}
+    <div class="stat-item" style="margin-bottom:8px;">
+      <div class="stat-label">简要原因</div>
+      <div class="stat-value" style="font-size:14px;">{{ error_info.exception_message }}</div>
+    </div>
+    {% endif %}
+
+    {% if error_info.location %}
+    <div class="stat-item" style="margin-bottom:8px;">
+      <div class="stat-label">发生位置</div>
+      <div class="stat-value" style="font-size:13px;font-family:var(--font-mono);">{{ error_info.location }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <button type="button" class="btn btn-ghost btn-sm" onclick="toggleTraceback()">📋 查看完整 traceback</button>
+
+  <pre id="full-traceback" style="display:none;margin-top:12px;white-space:pre-wrap;font-family:var(--font-mono);font-size:12px;line-height:1.5;color:var(--text-muted);max-height:400px;overflow-y:auto;background:var(--bg-sidebar);border-radius:6px;padding:12px;">{{ error_info.full_traceback }}</pre>
 </div>
 {% endif %}
 
@@ -82,4 +111,17 @@
     <button type="submit" class="btn btn-danger" data-confirm="确认清空当前世界所有记忆？此操作不可撤销！">🔄 重置当前世界记忆</button>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleTraceback() {
+  var el = document.getElementById('full-traceback');
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+</script>
 {% endblock %}

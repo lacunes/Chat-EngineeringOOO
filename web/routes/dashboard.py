@@ -4,11 +4,12 @@ import logging
 import re
 import time
 
-from flask import Blueprint, render_template, request, redirect, url_for
+from flask import Blueprint, render_template
 
 from config import settings
 from web.app import _ctx, audit_log, _format_uptime, _flash_redirect
 from web.routes.auth import login_required
+from flask import url_for
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,13 @@ dashboard_bp = Blueprint("dashboard", __name__)
 _SKIP_ERROR_PATTERNS = [
     re.compile(r"No error handlers are registered"),
     re.compile(r"unhandled exception", re.I),
+]
+
+# 网络重试类异常（降低严重程度）
+_NETWORK_EXCEPTIONS = [
+    "TimedOut", "Timeout", "ConnectionError", "NetworkError",
+    "ConnectionResetError", "ConnectionRefusedError",
+    "RetryAfter", "TooManyRequests",
 ]
 
 
@@ -33,40 +41,8 @@ def index():
     except Exception:
         log_size = "N/A"
 
-    # 最近错误摘要：跳过无意义的框架提示，展示真正的异常原因
-    error_summary = ""
-    try:
-        with open(log_path, "r", encoding="utf-8") as f:
-            all_lines = f.readlines()
-
-        # 从后往前找真正的 ERROR，跳过框架噪音
-        for line in reversed(all_lines):
-            if "ERROR" not in line and "CRITICAL" not in line:
-                continue
-            if any(p.search(line) for p in _SKIP_ERROR_PATTERNS):
-                continue
-            error_summary = line.strip()[-300:]
-            break
-
-        # 如果上面没找到，再看看有没有带 Traceback 的上下文（真正的异常通常在 ERROR 前一行）
-        if not error_summary:
-            for i in range(len(all_lines) - 1, -1, -1):
-                if "Traceback (most recent call last)" in all_lines[i]:
-                    # 取这一行和下一行作为摘要
-                    excerpt = all_lines[i].strip()
-                    if i + 1 < len(all_lines):
-                        excerpt += " | " + all_lines[i + 1].strip()[:200]
-                    error_summary = excerpt[-300:]
-                    break
-
-        # 过滤敏感信息
-        if error_summary:
-            import os
-            for secret in [os.getenv("BOT_TOKEN", ""), os.getenv("DEEPSEEK_KEY", ""), os.getenv("WEB_PASSWORD", "")]:
-                if secret and len(secret) > 4:
-                    error_summary = error_summary.replace(secret, "***")
-    except Exception:
-        pass
+    # 解析最近错误
+    error_info = _parse_recent_error(log_path)
 
     return render_template(
         "dashboard.html",
@@ -80,7 +56,7 @@ def index():
         npc_status=ctx.npc_manager.get_status_text(),
         uptime=uptime,
         log_size=log_size,
-        error_summary=error_summary,
+        error_info=error_info,
         ctx=ctx,
     )
 
@@ -96,3 +72,147 @@ def reset_world():
     audit_log("重置世界记忆", f"世界: {ctx.world.WORLD_NAME}")
     logger.info("Web panel: memory + relationships + time reset for world %s", ctx.world.WORLD_NAME)
     return _flash_redirect(url_for("dashboard.index"), "当前世界记忆、关系网络和时间均已重置")
+
+
+# ═══════════════════════════════════════════════════════════
+# 错误日志解析
+# ═══════════════════════════════════════════════════════════
+
+def _parse_recent_error(log_path) -> dict | None:
+    """从日志文件解析最近一次错误，返回结构化信息。
+
+    优先解析 traceback：取最后一行（异常类型+消息）作为摘要，
+    取倒数第二帧作为发生位置。网络重试类异常降低严重程度。
+    """
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+    except Exception:
+        return None
+
+    if not all_lines:
+        return None
+
+    # ── 第一步：找到最近的 traceback 块 ──
+    tb_block = _find_last_traceback_block(all_lines)
+
+    if tb_block:
+        return _parse_traceback_block(tb_block, all_lines)
+
+    # ── 第二步：没有 traceback，找最近的 ERROR/CRITICAL 行 ──
+    for line in reversed(all_lines):
+        stripped = line.strip()
+        if ("ERROR" not in stripped and "CRITICAL" not in stripped):
+            continue
+        if any(p.search(stripped) for p in _SKIP_ERROR_PATTERNS):
+            continue
+        return {
+            "exception_type": "",
+            "exception_message": _filter_sensitive(stripped[-200:]),
+            "location": "",
+            "full_traceback": _filter_sensitive(stripped),
+            "is_network": False,
+        }
+
+    return None
+
+
+def _find_last_traceback_block(lines: list[str]) -> list[str] | None:
+    """找到日志中最后一个 traceback 块并返回其行列表。"""
+    # 从后往前找 "Traceback (most recent call last):"
+    tb_start = None
+    for i in range(len(lines) - 1, -1, -1):
+        if "Traceback (most recent call last):" in lines[i]:
+            tb_start = i
+            break
+
+    if tb_start is None:
+        return None
+
+    # 收集从 tb_start 到块末尾的所有行
+    # traceback 块以一行非缩进的行结束（通常是异常类型行），
+    # 或者遇到空行 / 新的日志时间戳
+    block: list[str] = []
+    for i in range(tb_start, len(lines)):
+        line = lines[i]
+        # 遇到空行且已经收集了内容 → 块结束
+        if line.strip() == "" and len(block) > 1:
+            break
+        # 遇到新的日志时间戳行（仿照 logging 格式: YYYY-MM-DD HH:MM:SS）且不在 traceback 中
+        if _is_new_log_entry(line) and i > tb_start and not line.startswith("  ") and "Traceback" not in line:
+            # 检查是否是 traceback 延续行（缩进或 File 行）
+            if not (line.startswith("  ") or line.strip().startswith("File ")):
+                break
+        block.append(line)
+
+    return block if len(block) >= 2 else None
+
+
+def _is_new_log_entry(line: str) -> bool:
+    """判断是否是新的日志条目开头（例如: 2025-01-15 14:30:05 - INFO - ...）。"""
+    return bool(re.match(r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+', line))
+
+
+def _parse_traceback_block(block: list[str], all_lines: list[str]) -> dict | None:
+    """解析 traceback 块，提取异常类型、消息、位置。"""
+    if not block:
+        return None
+
+    # ── 提取异常类型和消息（traceback 最后一行）──
+    last_line = block[-1].strip()
+    exc_type = ""
+    exc_message = ""
+    location = ""
+    is_network = False
+
+    # 格式: module.ExceptionType: message
+    # 或者直接: ExceptionType: message
+    exc_match = re.match(r'^([\w.]+(?:Error|Exception|Warning|Timeout|Interrupt|Exit|[A-Z]\w+))(?::\s*(.*))?$', last_line)
+    if exc_match:
+        exc_type = exc_match.group(1)
+        exc_message = exc_match.group(2) or ""
+    else:
+        # 回退：直接把最后一行作为消息
+        exc_message = last_line[-200:]
+
+    # ── 提取发生位置（traceback 倒数第二帧的文件行）──
+    for line in reversed(block):
+        file_match = re.match(r'\s*File\s+"([^"]+)",\s*line\s+(\d+)', line)
+        if file_match:
+            filepath = file_match.group(1)
+            lineno = file_match.group(2)
+            # 取文件名而非完整路径
+            filename = filepath.replace("\\", "/").split("/")[-1]
+            location = f"{filename}:{lineno}"
+            break
+
+    # ── 网络异常判断 ──
+    if any(ne in exc_type for ne in _NETWORK_EXCEPTIONS):
+        is_network = True
+
+    # ── 构建完整 traceback 文本 ──
+    full_tb = "".join(block)
+
+    # 过滤敏感信息
+    full_tb = _filter_sensitive(full_tb)
+    exc_message = _filter_sensitive(exc_message)
+    location = _filter_sensitive(location)
+
+    return {
+        "exception_type": exc_type,
+        "exception_message": exc_message,
+        "location": location,
+        "full_traceback": full_tb,
+        "is_network": is_network,
+    }
+
+
+def _filter_sensitive(text: str) -> str:
+    """过滤敏感信息。"""
+    import os
+    for secret in [os.getenv("BOT_TOKEN", ""), os.getenv("DEEPSEEK_KEY", ""), os.getenv("WEB_PASSWORD", "")]:
+        if secret and len(secret) > 4:
+            text = text.replace(secret, "***")
+    # 也替换 API key 模式
+    text = re.sub(r'sk-[a-zA-Z0-9]{10,}', 'sk-***', text)
+    return text
