@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}记忆管理{% endblock %}
+{% block content %}
+<h1 class="page-title">🧠 记忆管理</h1>
+<p class="page-subtitle">短期记忆共 {{ short_count }} 条，长期记忆共 {{ long_count }} 条</p>
+
+<!-- 长期记忆：新增长条 -->
+<div class="card">
+  <div class="card-header"><h2>新增长期记忆</h2></div>
+  <form method="post" action="{{ url_for('memory.add_long_memory') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <textarea name="content" rows="3" placeholder="输入新记忆内容…" required></textarea>
+    <div class="btn-group" style="margin-top:8px;">
+      <button type="submit" class="btn btn-primary">💾 写入长期记忆</button>
+    </div>
+  </form>
+</div>
+
+<!-- 长期记忆列表 -->
+<div class="card">
+  <div class="card-header">
+    <h2>长期记忆（{{ long_items|length }} 条）</h2>
+    <form method="post" action="{{ url_for('memory.refine_long_memory') }}" style="display:inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-ghost btn-sm">🔧 精炼长期记忆</button>
+    </form>
+  </div>
+  {% if long_items %}
+    {% for item in long_items %}
+    <div class="memory-card">
+      <div class="mem-index">#{{ loop.index }}</div>
+      <div class="mem-text">{{ item }}</div>
+      <div class="mem-actions">
+        <form method="post" action="{{ url_for('memory.delete_long_memory', index=loop.index0) }}" style="display:inline">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-danger btn-sm" data-confirm="确认删除这条长期记忆？">删除</button>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state"><p>暂无长期记忆</p></div>
+  {% endif %}
+</div>
+
+<!-- 短期记忆 -->
+<div class="card">
+  <div class="card-header"><h2>短期记忆（最近 {{ short_messages|length }} 条）</h2></div>
+  {% if short_messages %}
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th style="width:50px;">#</th><th style="width:80px;">角色</th><th>内容</th></tr></thead>
+      <tbody>
+      {% for msg in short_messages %}
+      <tr>
+        <td style="text-align:right;color:var(--text-muted);">{{ loop.index }}</td>
+        <td><span class="badge {% if msg.role == 'user' %}badge-blue{% elif msg.role == 'assistant' %}badge-green{% else %}badge-orange{% endif %}">{{ msg.role }}</span></td>
+        <td>{{ msg.content[:300] }}{% if msg.content|length > 300 %}…{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state"><p>暂无短期记忆</p></div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}日志{% endblock %}
+{% block content %}
+<h1 class="page-title">📜 日志</h1>
+<p class="page-subtitle">文件: {{ log_path }}（最新 100 行）</p>
+
+<div class="card">
+  {% if lines %}
+    {% for line in lines %}
+    <div class="log-line {% if 'WARNING' in line %}warn{% elif 'ERROR' in line %}error{% elif 'INFO' in line %}info{% endif %}">{{ line }}</div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state"><p>暂无日志</p></div>
+  {% endif %}
+</div>
+{% endblock %}

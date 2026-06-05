@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}编辑世界 - {{ name }}{% endblock %}
+{% block content %}
+<h1 class="page-title">🌍 编辑世界: {{ name }}</h1>
+<div class="mode-bar">
+  <span class="text-muted">表单模式 — 文件: {{ file_path }}</span>
+  <a href="{{ url_for('worlds.edit_world', name=name, mode='raw') }}">📝 高级模式（源码编辑）</a>
+</div>
+
+{% if error %}<div class="flash-msg flash-error show">{{ error }}</div>{% endif %}
+
+<form method="post" action="{{ url_for('worlds.save_world', name=name) }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="mode" value="form">
+
+  <div class="card">
+    <div class="form-group">
+      <label>世界名</label>
+      <input type="text" name="field_WORLD_NAME" value="{{ fields.get('WORLD_NAME', name) }}" style="width:200px;">
+    </div>
+
+    {% macro field(key, label, hint='', rows=4) %}
+    <div class="form-group">
+      <label>{{ label }}</label>
+      {% if hint %}<div class="hint">{{ hint }}</div>{% endif %}
+      <textarea name="field_{{ key }}" rows="{{ rows }}" style="min-height:{{ rows * 24 }}px;">{{ fields.get(key, '') }}</textarea>
+    </div>
+    {% endmacro %}
+
+    {{ field('START_SCENE', '开场场景', '用户 /start 时显示的文本', 6) }}
+    {{ field('SYSTEM_PROMPT', '系统提示词', '世界观、人物关系、叙事规则的核心入口', 12) }}
+    {{ field('CHARACTERS', '角色设定', '每行: 角色名: 描述', 4) }}
+    {{ field('RULES', '剧情规则', '每行一条规则', 4) }}
+    {{ field('LOCATIONS', '地点设定', '每行: 地点名: 描述', 4) }}
+    {{ field('EVENT_POOL', '事件池', '每行一个随机事件', 4) }}
+
+    <div class="form-group">
+      <label>NPC 配置</label>
+      <div class="hint">JSON 格式</div>
+      <textarea name="field_NPCS" rows="10" class="code-editor">{{ fields.get('NPCS', '') }}</textarea>
+    </div>
+
+    <div class="btn-group">
+      <button type="submit" class="btn btn-primary" data-confirm="确认保存？">💾 保存</button>
+      <a href="{{ url_for('worlds.list_worlds') }}" class="btn btn-ghost">取消</a>
+    </div>
+  </div>
+</form>
+
+<div class="danger-zone">
+  <h3>⚠ 危险操作</h3>
+  <p class="text-muted" style="margin-bottom:12px;">删除世界会同时删除对应的记忆、关系和时间数据。</p>
+  <form method="post" action="{{ url_for('worlds.delete_world', name=name) }}" style="display:inline">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-danger" data-confirm="确认删除世界 {{ name }}？此操作不可撤销！">🗑 删除此世界</button>
+  </form>
+  <form method="post" action="{{ url_for('worlds.copy_world', name=name) }}" style="display:inline;margin-left:8px;">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-ghost">📋 复制此世界</button>
+  </form>
+</div>
+{% endblock %}

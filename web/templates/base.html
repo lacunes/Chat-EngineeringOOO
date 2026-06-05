@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>{% block title %}导演台{% endblock %} — AI 角色扮演</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="layout">
+
+  <!-- 左侧导航 -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      🎬 导演台
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">概览</div>
+      <a href="{{ url_for('dashboard.index') }}" class="{% if request.endpoint and request.endpoint.startswith('dashboard') %}active{% endif %}">
+        <span class="nav-icon">📊</span> 仪表盘
+      </a>
+
+      <div class="nav-section">剧情</div>
+      <a href="{{ url_for('config_center.index') }}" class="{% if request.endpoint and request.endpoint.startswith('config') %}active{% endif %}">
+        <span class="nav-icon">⚙</span> 配置中心
+      </a>
+      <a href="{{ url_for('worlds.list_worlds') }}" class="{% if request.endpoint and request.endpoint.startswith('worlds') %}active{% endif %}">
+        <span class="nav-icon">🌍</span> 世界编辑器
+      </a>
+      <a href="{{ url_for('time_routes.index') }}" class="{% if request.endpoint and request.endpoint.startswith('time_routes') %}active{% endif %}">
+        <span class="nav-icon">⏰</span> 时间与节奏
+      </a>
+
+      <div class="nav-section">记忆</div>
+      <a href="{{ url_for('memory.short_memory') }}" class="{% if request.endpoint in ('memory.short_memory', 'memory.long_memory') %}active{% endif %}">
+        <span class="nav-icon">🧠</span> 记忆管理
+      </a>
+      <a href="{{ url_for('memory_audit.index') }}" class="{% if request.endpoint and request.endpoint.startswith('memory_audit') %}active{% endif %}">
+        <span class="nav-icon">🔍</span> 记忆检查
+      </a>
+
+      <div class="nav-section">社交</div>
+      <a href="{{ url_for('relations.index') }}" class="{% if request.endpoint and request.endpoint.startswith('relations') %}active{% endif %}">
+        <span class="nav-icon">💞</span> 关系网络
+      </a>
+
+      <div class="nav-section">系统</div>
+      <a href="{{ url_for('logs.index') }}" class="{% if request.endpoint and request.endpoint.startswith('logs') %}active{% endif %}">
+        <span class="nav-icon">📜</span> 日志
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <form method="post" action="{{ url_for('auth.logout') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="logout-btn">🚪 退出登录</button>
+      </form>
+    </div>
+  </aside>
+
+  <!-- 侧栏遮罩（移动端）-->
+  <div class="modal-overlay" id="sidebar-overlay"></div>
+
+  <!-- 主内容区 -->
+  <div class="main">
+    <!-- 顶部状态栏 -->
+    <div class="topbar">
+      <button class="mobile-menu-btn" id="mobile-menu-btn" title="菜单">☰</button>
+      <span>
+        <span class="dot green"></span> Bot 运行中
+      </span>
+      <span>世界：<strong>{{ ctx.world.WORLD_NAME }}</strong></span>
+      <span>模型：<strong>{{ ctx.client.model_name }}</strong></span>
+      <span class="spacer"></span>
+      <span>运行：{{ uptime or '--' }}</span>
+    </div>
+
+    <!-- 内容 -->
+    <div class="content">
+      <div id="flash-container" class="flash-msg"></div>
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
+</div>
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

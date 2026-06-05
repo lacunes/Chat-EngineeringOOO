@@ -13,7 +13,7 @@ from bot.telegram_handlers import RoleplayBot
 from bot.time_manager import TimeManager
 from bot.utils import load_world
 from config import settings
-from web.app import AppContext, create_app, register_routes
+from web.app import AppContext, create_app
 
 
 def setup_logging() -> None:
@@ -128,7 +128,6 @@ def main() -> None:
     # ── 启动 Web 管理面板（守护线程）──
     ctx = AppContext(world, memory, client, roleplay_bot.npc_manager, relationships, time_mgr, time.time())
     web_app = create_app(ctx)
-    register_routes(web_app)
     threading.Thread(
         target=lambda: web_app.run(
             host=settings.WEB_HOST,

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}世界管理{% endblock %}
+{% block content %}
+<h1 class="page-title">🌍 世界管理</h1>
+<p class="page-subtitle">管理所有世界文件</p>
+<div class="card">
+  <table class="data-table">
+    <thead><tr><th>世界名</th><th>文件路径</th><th>大小</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for w in worlds %}
+    <tr>
+      <td>{{ w.name }}{% if w.is_active %} <span class="badge badge-green">当前</span>{% endif %}</td>
+      <td class="text-muted">{{ w.path }}</td>
+      <td class="text-muted">{{ "%.1f"|format(w.size_kb) }} KB</td>
+      <td>
+        <div class="btn-group">
+          <a href="{{ url_for('worlds.edit_world', name=w.name) }}" class="btn btn-primary btn-sm">编辑</a>
+          {% if not w.is_active %}
+          <form method="post" action="{{ url_for('worlds.switch_world') }}" style="display:inline">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="world" value="{{ w.name }}">
+            <button class="btn btn-warning btn-sm">切换</button>
+          </form>
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="empty-state"><p>未找到世界文件</p></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2>新建世界</h2></div>
+  <form method="post" action="{{ url_for('worlds.create_world') }}" class="btn-group">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="text" name="world_name" placeholder="新世界名（英文）" style="width:200px;" required>
+    <button type="submit" class="btn btn-success">✨ 基于 one.py 创建</button>
+  </form>
+</div>
+{% endblock %}

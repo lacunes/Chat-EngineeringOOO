@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}记忆污染检查{% endblock %}
+{% block content %}
+<h1 class="page-title">🔍 长期记忆污染检查</h1>
+<p class="page-subtitle">检查长期记忆中的重复、矛盾、过时等问题（第二阶段完善）</p>
+
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">🔬</div>
+    <p>记忆污染检查功能将在第二阶段完善。<br>届时将支持规则检查 + AI 检查两层分析。</p>
+  </div>
+</div>
+
+{% if reports %}
+<div class="card">
+  <div class="card-header"><h2>历史检查报告</h2></div>
+  <table class="data-table">
+    <thead><tr><th>报告时间</th><th>问题数</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for report in reports %}
+    <tr>
+      <td>{{ report.time }}</td>
+      <td>{{ report.issue_count }}</td>
+      <td><a href="{{ url_for('memory_audit.view_report', filename=report.filename) }}" class="btn btn-primary btn-sm">查看</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

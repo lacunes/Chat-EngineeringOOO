@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 — AI 角色扮演导演台</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+<style>
+  /* 登录页不需要侧栏和顶栏 */
+  .login-input-group {
+    position: relative;
+    margin-bottom: 16px;
+  }
+  .login-input-group .icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    opacity: .5;
+    pointer-events: none;
+  }
+  .login-input-group input {
+    padding-left: 42px;
+  }
+</style>
+</head>
+<body>
+<div class="login-page">
+  <div class="login-box">
+    <h1>🎬 导演台</h1>
+    <p class="login-subtitle">AI 角色扮演剧情管理中心</p>
+
+    {% if error %}
+    <div class="flash-msg flash-error show" style="margin-bottom:16px;">{{ error }}</div>
+    {% endif %}
+
+    {% if cooldown %}
+    <div class="flash-msg flash-warning show" style="margin-bottom:16px;">
+      登录失败次数过多，请等待 {{ cooldown }} 分钟后再试。
+    </div>
+    {% else %}
+    <form method="post" action="{{ url_for('auth.login') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="login-input-group">
+        <span class="icon">👤</span>
+        <input type="text" name="username" placeholder="用户名" value="admin" autocomplete="username" required autofocus>
+      </div>
+      <div class="login-input-group">
+        <span class="icon">🔑</span>
+        <input type="password" name="password" placeholder="密码" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn btn-primary">登 录</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

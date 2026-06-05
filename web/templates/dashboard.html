@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}仪表盘{% endblock %}
+
+{% block content %}
+<h1 class="page-title">📊 仪表盘</h1>
+<p class="page-subtitle">当前世界运行状态概览</p>
+
+<!-- 运行状态 -->
+<div class="card">
+  <div class="card-header">
+    <h2>运行状态</h2>
+  </div>
+  <div class="stats-row">
+    <div class="stat-item">
+      <div class="stat-label">当前世界</div>
+      <div class="stat-value">{{ world_name }}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">使用模型</div>
+      <div class="stat-value">{{ model }}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">运行时长</div>
+      <div class="stat-value">{{ uptime }}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">日志大小</div>
+      <div class="stat-value">{{ log_size }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- 记忆概览 -->
+<div class="card">
+  <div class="card-header">
+    <h2>记忆概览</h2>
+  </div>
+  <div class="stats-row">
+    <div class="stat-item">
+      <div class="stat-label">短期记忆</div>
+      <div class="stat-value">{{ memory_count }} 条</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">长期记忆</div>
+      <div class="stat-value">{{ long_count }} 条</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">关系数量</div>
+      <div class="stat-value">{{ relation_count }} 组</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">当前时间</div>
+      <div class="stat-value">第{{ time_day }}天 {{ time_period }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- NPC 系统 -->
+<div class="card">
+  <div class="card-header">
+    <h2>NPC 系统</h2>
+  </div>
+  <pre style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text-secondary);">{{ npc_status }}</pre>
+</div>
+
+<!-- 最近错误 -->
+{% if error_summary %}
+<div class="card">
+  <div class="card-header">
+    <h2>⚠ 最近错误摘要</h2>
+  </div>
+  <div class="log-line error">{{ error_summary }}</div>
+</div>
+{% endif %}
+
+<!-- 重置 -->
+<div class="danger-zone">
+  <h3>⚠ 重置当前世界</h3>
+  <p class="text-muted" style="margin-bottom:12px;">清空当前世界的所有记忆、关系网络和时间状态。此操作不可撤销。</p>
+  <form method="post" action="{{ url_for('dashboard.reset_world') }}" style="display:inline">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-danger" data-confirm="确认清空当前世界所有记忆？此操作不可撤销！">🔄 重置当前世界记忆</button>
+  </form>
+</div>
+{% endblock %}

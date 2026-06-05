@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}检查报告{% endblock %}
+{% block content %}
+<h1 class="page-title">📋 记忆污染检查报告</h1>
+<p class="page-subtitle">{{ report.time }}</p>
+<div class="card">
+  <div class="empty-state">
+    <p>报告详情将在第二阶段完善。</p>
+  </div>
+</div>
+<a href="{{ url_for('memory_audit.index') }}" class="btn btn-ghost">← 返回检查列表</a>
+{% endblock %}
