@@ -141,11 +141,12 @@ class TimeManager:
         )
 
     def get_long_scene_hint(self) -> str:
-        """如果当前时段持续过久，返回温和提示；否则返回空字符串。"""
+        """如果当前时段持续过久，返回温和提示（每5轮触发一次）。"""
         if self.rounds_in_current_period >= settings.TIME_LONG_SCENE_HINT_THRESHOLD:
-            return (
-                "\n\n（当前时段已持续较久，如需推进时间可使用 /next_time 或 /next_day）"
-            )
+            if self.rounds_in_current_period % 5 == 0:
+                return (
+                    "\n\n（当前时段已持续较久，如需推进时间可使用 /next_time 或 /next_day）"
+                )
         return ""
 
     # ═══════════════════════════════════════════════════════
@@ -275,6 +276,7 @@ class TimeManager:
                     ],
                     max_tokens=120,
                     temperature=0.3,
+                    purpose="day_summary",
                 )
                 summary = f"第{self.day - 1}天：{result.strip()}"
             except Exception as exc:

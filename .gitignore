@@ -8,6 +8,7 @@ __pycache__/
 *.pyd
 *.log
 memory/
+logs/
 *.bak
 /关系网优化.txt
 /关系网络创建.txt
@@ -15,6 +16,7 @@ memory/
 /计划书2.txt
 /时间.txt
 /时间优化-1.txt
+/大型优化.txt
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

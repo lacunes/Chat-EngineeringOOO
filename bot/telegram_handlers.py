@@ -44,6 +44,7 @@ class RoleplayBot:
         self.npc_manager = NPCManager(world, memory)
         # 防止后台记忆维护任务堆积
         self._bg_maintenance_running = False
+        self._last_maintenance_time: float = 0.0
 
     def is_authorized(self, update: Update) -> bool:
         return bool(update.effective_user and update.effective_user.id == settings.ALLOWED_ID)
@@ -228,12 +229,13 @@ class RoleplayBot:
         return reply
 
     async def continue_story(self) -> str:
-        # 续写永远不推进时间，也不触发关键词检测。
+        # 续写不推进时间、不触发后台维护。
         return await self.generate_reply(
             user_text=prompts.CONTINUE_PROMPT,
             max_tokens=utils.get_reply_length(),
             length_notice="\n\n（这一段似乎还没说完，可以继续发送 /c。）",
             skip_time_advance=True,
+            skip_background_maintenance=True,
         )
 
     async def generate_reply(
@@ -242,6 +244,7 @@ class RoleplayBot:
         length_notice: str,
         max_tokens: int | None = None,
         skip_time_advance: bool = False,
+        skip_background_maintenance: bool = False,
     ) -> str:
         """统一处理普通回复和续写回复的公共流程。
 
@@ -301,6 +304,7 @@ class RoleplayBot:
         reply, finish = await self.client.chat(
             self.memory.build_messages(system_prompt),
             max_tokens=max_tokens,
+            purpose="continue" if skip_time_advance else "main_chat",
         )
         if finish == "length":
             reply += length_notice
@@ -310,8 +314,9 @@ class RoleplayBot:
         self.time_manager.on_assistant_reply(self.memory.message_count)
         self.memory.save_memory()
 
-        # ── 后台记忆维护 + 关系抽取（不阻塞回复）──
-        self._schedule_background_maintenance()
+        # ── 后台记忆维护 + 关系抽取（不阻塞回复；/c 跳过）──
+        if not skip_background_maintenance:
+            self._schedule_background_maintenance()
 
         # ── 上轮关系变化提示（加在回复开头）──
         pending = self.relationship_manager.take_pending_hints()
@@ -323,6 +328,9 @@ class RoleplayBot:
     def _schedule_background_maintenance(self) -> None:
         """调度后台记忆压缩、长期记忆抽取、关系网络抽取。"""
         if self._bg_maintenance_running:
+            return
+        now = time.time()
+        if now - self._last_maintenance_time < settings.BACKGROUND_MAINTENANCE_COOLDOWN_SECONDS:
             return
 
         async def _run():
@@ -339,5 +347,6 @@ class RoleplayBot:
                 logger.warning("Background maintenance failed: %s", exc)
             finally:
                 self._bg_maintenance_running = False
+                self._last_maintenance_time = time.time()
 
         asyncio.create_task(_run())

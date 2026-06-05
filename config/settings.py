@@ -173,7 +173,8 @@ AUTO_MEMORY_LOOKBACK = _get_int("AUTO_MEMORY_LOOKBACK", 32)
 # 设为 4 的原因：给新记忆留出累积空间，不要太频繁触发精炼 API 调用。
 # 调高 → 精炼间隔更长，API 调用更少但记忆列表更长。
 # 调低 → 精炼更频繁，记忆列表始终紧凑但 API 调用增加。
-LONG_MEMORY_REFINE_BUFFER = _get_int("LONG_MEMORY_REFINE_BUFFER", 4)
+LONG_MEMORY_REFINE_BUFFER = _get_int("LONG_MEMORY_REFINE_BUFFER", 20)
+LONG_MEMORY_EXTRACT_REQUIRE_SIGNAL = os.getenv("LONG_MEMORY_EXTRACT_REQUIRE_SIGNAL", "true").strip().lower() != "false"
 
 # ═══════════════════════════════════════════════════════════════
 # 记忆提醒配置
@@ -214,6 +215,7 @@ NPC_CONTEXT_BOOST_MULTIPLIER = float(os.getenv("NPC_CONTEXT_BOOST_MULTIPLIER", "
 
 RELATION_EXTRACT_INTERVAL = _get_int("RELATION_EXTRACT_INTERVAL", 2)
 RELATION_SIGNIFICANT_THRESHOLD = _get_int("RELATION_SIGNIFICANT_THRESHOLD", 3)
+RELATION_EXTRACT_REQUIRE_SIGNAL = os.getenv("RELATION_EXTRACT_REQUIRE_SIGNAL", "true").strip().lower() != "false"
 
 # ═══════════════════════════════════════════════════════════════
 # 时间流逝配置
@@ -230,6 +232,14 @@ TIME_LONG_SCENE_HINT_THRESHOLD = _get_int("TIME_LONG_SCENE_HINT_THRESHOLD", 80)
 
 # 普通时段推进（非跨天关键词）是否允许从深夜跨到第二天（默认 false）。
 TIME_AUTO_CROSS_DAY = os.getenv("TIME_AUTO_CROSS_DAY", "false").strip().lower() == "true"
+
+# ═══════════════════════════════════════════════════════════════
+# 后台维护与API优化配置
+# ═══════════════════════════════════════════════════════════════
+
+BACKGROUND_MAINTENANCE_COOLDOWN_SECONDS = _get_int("BACKGROUND_MAINTENANCE_COOLDOWN_SECONDS", 60)
+API_USAGE_LOG_ENABLED = os.getenv("API_USAGE_LOG_ENABLED", "true").strip().lower() != "false"
+COMBINED_MAINTENANCE_ENABLED = os.getenv("COMBINED_MAINTENANCE_ENABLED", "false").strip().lower() == "true"
 
 # ═══════════════════════════════════════════════════════════════
 # Web 管理面板配置

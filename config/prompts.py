@@ -74,6 +74,20 @@ RELATION_EXTRACT_PROMPT = (
     "- 只输出 JSON 数组，不要解释"
 )
 
+# ── 综合后台维护提示词（暂未启用）──
+
+COMBINED_MAINTENANCE_PROMPT = (
+    "你是角色扮演后台分析助手。分析最近对话，同时输出长期记忆和关系变化。\n\n"
+    "输出 JSON 对象：\n"
+    '{"long_memory":[{"type":"fact","content":"描述"}],'
+    '"relation_changes":[{"from":"A","to":"B","changes":{"trust":2},"note":"原因"}]}\n\n'
+    "规则：\n"
+    "- long_memory: 只保留稳定性信息，最多 3 条\n"
+    "- relation_changes: 变化幅度通常 ±1~3；无明显变化为空数组\n"
+    '- 无内容时输出 {"long_memory":[],"relation_changes":[]}\n'
+    "- 只输出 JSON，不要解释"
+)
+
 # ── 时间流逝提示词 ──
 
 TIME_INJECT_INSTRUCTION = (

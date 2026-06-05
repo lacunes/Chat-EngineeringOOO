@@ -290,6 +290,12 @@ class RelationshipManager:
             return
 
         recent = memory[-settings.AUTO_MEMORY_LOOKBACK:]
+        if settings.RELATION_EXTRACT_REQUIRE_SIGNAL:
+            if not _should_extract_relations(recent, self.characters):
+                logger.debug("Relation extract skipped: no signal")
+                self._reply_count_since_extract = 0
+                self.save()
+                return
         dialogue = _format_dialogue_for_extraction(recent)
 
         try:
@@ -300,6 +306,7 @@ class RelationshipManager:
                 ],
                 max_tokens=300,
                 temperature=0.3,
+                purpose="relation_extract",
             )
             changes = _parse_relation_json(result)
             if changes:
@@ -328,6 +335,31 @@ def _format_dialogue_for_extraction(messages: list) -> str:
             content = content[:500] + "…"
         lines.append(f"[{role}]: {content}")
     return "\n".join(lines)
+
+
+# ── 本地关系信号判断 ──
+
+_RELATION_SIGNAL_KEYWORDS = {
+    "信任", "怀疑", "喜欢", "讨厌", "害怕", "依赖", "承诺", "背叛",
+    "保护", "生气", "道歉", "亲近", "疏远", "试探", "安慰", "嫉妒",
+    "吃醋", "照顾", "冷淡", "和好", "感动", "感激", "失望",
+}
+
+_STRONG_SIGNALS = {"背叛", "承诺", "喜欢", "讨厌", "和好", "害怕", "依赖"}
+
+
+def _should_extract_relations(messages: list[dict], characters: list[str]) -> bool:
+    """本地判断最近对话是否包含关系变化信号。零 API 开销。"""
+    if not characters or len(characters) < 2:
+        return False
+    text = " ".join(m.get("content", "") for m in messages[-12:])
+    char_hits = sum(1 for c in characters if c in text)
+    if char_hits < 2:
+        return False
+    kw_hits = [kw for kw in _RELATION_SIGNAL_KEYWORDS if kw in text]
+    if any(kw in _STRONG_SIGNALS for kw in kw_hits):
+        return True
+    return len(kw_hits) >= 2
 
 
 def _parse_relation_json(text: str) -> list:

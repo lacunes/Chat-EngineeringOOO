@@ -11,6 +11,19 @@ from config import prompts, settings
 
 logger = logging.getLogger(__name__)
 
+_LONG_MEMORY_SIGNAL_KEYWORDS = {
+    "答应", "保证", "约定", "发誓", "记住",
+    "现在是", "已经成了", "不再是",
+    "经常", "总是", "每天", "从不", "一直",
+    "死了", "离开了", "结婚了", "找到了",
+    "喜欢", "讨厌", "最怕", "最爱", "从不吃",
+}
+
+
+def _should_extract_long_memory(text: str) -> bool:
+    """本地判断最近对话是否包含值得长期记忆的信号。"""
+    return any(kw in text for kw in _LONG_MEMORY_SIGNAL_KEYWORDS)
+
 
 class MemoryManager:
     """管理当前世界的短期记忆和长期记忆。
@@ -101,7 +114,8 @@ class MemoryManager:
                     {"role": "user", "content": f"请压缩以下对话：\n\n{dialogue_text[:6000]}"},
                 ],
                 max_tokens=400,
-                temperature=0.4,  # 摘要需要稳定准确，用较低温度
+                temperature=0.4,
+                purpose="memory_compress",
             )
             logger.info("Compressed old memory through DeepSeek")
         except Exception as exc:
@@ -110,7 +124,7 @@ class MemoryManager:
 
         if summary:
             self.add_long_memory_item(f"旧剧情摘要：{summary}")
-            await self.refine_long_memory(client, force=True)
+            await self.refine_long_memory(client, force=False)
 
         with self._lock:
             self.memory = self.memory[old_size // 2 :]
@@ -121,12 +135,18 @@ class MemoryManager:
 
     async def auto_extract_long_memory(self, client) -> None:
         # 每隔固定消息数，从最近对话中抽取稳定事实。
-        # 例如关系变化、重要承诺、长期伏笔。
         new_messages = len(self.memory) - self.last_auto_memory_index
         if new_messages < settings.AUTO_MEMORY_INTERVAL:
             return
 
         recent = self.memory[-settings.AUTO_MEMORY_LOOKBACK:]
+        if settings.LONG_MEMORY_EXTRACT_REQUIRE_SIGNAL:
+            dialogue_text = " ".join(m.get("content", "") for m in recent)
+            if not _should_extract_long_memory(dialogue_text):
+                logger.debug("Long memory extract skipped: no signal")
+                with self._lock:
+                    self.last_auto_memory_index = len(self.memory)
+                return
         dialogue = utils.format_dialogue(recent, limit=7000)
 
         try:
@@ -136,7 +156,8 @@ class MemoryManager:
                     {"role": "user", "content": f"最近对话：\n\n{dialogue}"},
                 ],
                 max_tokens=500,
-                temperature=0.35,  # 抽取事实需要精确，温度低减少幻觉
+                temperature=0.35,
+                purpose="memory_extract",
             )
             new_items = utils.parse_memory_json(extracted_text)
             for item in new_items:
@@ -171,6 +192,7 @@ class MemoryManager:
                     {"role": "user", "content": json.dumps(items, ensure_ascii=False)},
                 ],
                 max_tokens=900,
+                purpose="memory_refine",
                 temperature=0.35,  # 精炼需要准确合并去重，温度低减少偏差
             )
             refined = utils.parse_memory_json(refined_text)
