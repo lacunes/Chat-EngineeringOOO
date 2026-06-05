@@ -2,7 +2,7 @@
 {% block title %}时间与节奏{% endblock %}
 {% block content %}
 <h1 class="page-title">⏰ 时间与剧情节奏</h1>
-<p class="page-subtitle">{{ world_name }} — 第{{ day }}天 · {{ season }} · {{ time_period }}</p>
+<p class="page-subtitle">{{ world_name }} — 第{{ day }}天 · {{ season }} · {{ time_period }}{% if rounds_in_period %}（已持续 {{ rounds_in_period }} 轮）{% endif %}</p>
 
 <!-- 时间状态 -->
 <div class="card">
@@ -51,7 +51,6 @@
       <button type="submit" class="btn btn-warning">📅 推进一天</button>
     </form>
   </div>
-  {% if rounds_in_period %}<p class="text-muted" style="margin-top:8px;">当前时段已持续 {{ rounds_in_period }} 轮</p>{% endif %}
 </div>
 
 <!-- 近日摘要 -->
@@ -84,11 +83,46 @@
   {% endif %}
 </div>
 
-<!-- 剧情节奏控制（第二阶段完善） -->
+<!-- 剧情节奏控制 -->
 <div class="card">
   <div class="card-header"><h2>🎬 剧情节奏控制</h2></div>
-  <div class="empty-state">
-    <p>剧情节奏控制将在第二阶段完善。<br>届时将支持设置剧情阶段和下一轮倾向。</p>
-  </div>
+  <p class="text-muted" style="margin-bottom:16px;">
+    这些设置会写入 runtime_directive.json，在下一次生成回复时作为临时导演提示注入，
+    不会永久污染长期记忆。关闭后指令即失效。
+  </p>
+  <form method="post" action="{{ url_for('time_routes.save') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="save_directive">
+
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" name="directive_enabled" value="true" {% if directive.get('enabled') %}checked{% endif %}>
+        <span>启用剧情节奏指令</span>
+      </label>
+      <div class="hint">启用后，每次 AI 生成回复时会注入导演倾向提示。</div>
+    </div>
+
+    <div class="form-group">
+      <label>当前剧情阶段</label>
+      <select name="story_phase">
+        {% for phase in story_phases %}
+        <option value="{{ phase }}" {% if directive.get('story_phase') == phase %}selected{% endif %}>{{ phase }}</option>
+        {% endfor %}
+      </select>
+      <div class="hint">告诉 AI 当前处于什么剧情氛围中。</div>
+    </div>
+
+    <div class="form-group">
+      <label>下一轮倾向</label>
+      <select name="next_tendency">
+        {% for t in next_tendencies %}
+        <option value="{{ t }}" {% if directive.get('next_tendency') == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+      <div class="hint">引导 AI 在接下来的回复中倾向于什么方向。</div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">💾 保存节奏指令</button>
+  </form>
 </div>
 {% endblock %}

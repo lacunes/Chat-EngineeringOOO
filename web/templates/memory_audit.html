@@ -2,30 +2,71 @@
 {% block title %}记忆污染检查{% endblock %}
 {% block content %}
 <h1 class="page-title">🔍 长期记忆污染检查</h1>
-<p class="page-subtitle">检查长期记忆中的重复、矛盾、过时等问题（第二阶段完善）</p>
+<p class="page-subtitle">帮助检查长期记忆中的重复、矛盾、过时、幻觉风险等问题。当前共 {{ long_count }} 条长期记忆。</p>
 
+<!-- 运行检查 -->
 <div class="card">
-  <div class="empty-state">
-    <div class="empty-icon">🔬</div>
-    <p>记忆污染检查功能将在第二阶段完善。<br>届时将支持规则检查 + AI 检查两层分析。</p>
+  <div class="card-header"><h2>运行检查</h2></div>
+  <p class="text-muted" style="margin-bottom:16px;">
+    规则检查（免费）：完全重复、过短、过长、含糊词、高相似文本。<br>
+    AI 检查（消耗 API）：语义重复、矛盾、过时、幻觉风险、表述不清。
+  </p>
+  <div class="btn-group">
+    <form method="post" action="{{ url_for('memory_audit.run_audit') }}" style="display:inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode" value="rules">
+      <button type="submit" class="btn btn-ghost">🔬 仅规则检查</button>
+    </form>
+    <form method="post" action="{{ url_for('memory_audit.run_audit') }}" style="display:inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="mode" value="both">
+      <button type="submit" class="btn btn-primary" data-confirm="AI 检查会调用 DeepSeek API 并消耗 token，确认运行？">🔍 规则 + AI 检查</button>
+    </form>
   </div>
 </div>
 
+<!-- 检查类型说明 -->
+<div class="card">
+  <div class="card-header"><h2>检查类型说明</h2></div>
+  <table class="data-table">
+    <thead><tr><th>类型</th><th>说明</th><th>检查方式</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-red">duplicate</span></td><td>重复：两条记忆完全相同或高度相似</td><td>规则检查</td></tr>
+      <tr><td><span class="badge badge-orange">contradiction</span></td><td>矛盾：两条记忆的描述相互冲突</td><td>AI 检查</td></tr>
+      <tr><td><span class="badge badge-blue">outdated</span></td><td>过时：记忆描述的状态已被后续事件更新</td><td>AI 检查</td></tr>
+      <tr><td><span class="badge badge-red">hallucination_risk</span></td><td>幻觉风险：记忆内容看起来像是被虚构的</td><td>AI 检查</td></tr>
+      <tr><td><span class="badge badge-purple">too_trivial</span></td><td>过细无价值：内容过于琐碎不值得保留</td><td>AI 检查</td></tr>
+      <tr><td><span class="badge badge-orange">unclear_subject</span></td><td>主语不清：表述含糊，不知道说的是谁</td><td>规则检查</td></tr>
+      <tr><td><span class="badge badge-blue">too_long</span></td><td>过长：超过 200 字符</td><td>规则检查</td></tr>
+      <tr><td><span class="badge badge-purple">too_short</span></td><td>过短：少于 5 字符</td><td>规则检查</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- 历史报告 -->
 {% if reports %}
 <div class="card">
   <div class="card-header"><h2>历史检查报告</h2></div>
   <table class="data-table">
-    <thead><tr><th>报告时间</th><th>问题数</th><th>操作</th></tr></thead>
+    <thead><tr><th>报告时间</th><th>记忆总数</th><th>发现问题</th><th>操作</th></tr></thead>
     <tbody>
     {% for report in reports %}
     <tr>
-      <td>{{ report.time }}</td>
-      <td>{{ report.issue_count }}</td>
-      <td><a href="{{ url_for('memory_audit.view_report', filename=report.filename) }}" class="btn btn-primary btn-sm">查看</a></td>
+      <td>{{ report.time[:16] }}</td>
+      <td>{{ report.total_items }}</td>
+      <td><span class="badge {% if report.issue_count == 0 %}badge-green{% elif report.issue_count|int > 5 %}badge-red{% else %}badge-orange{% endif %}">{{ report.issue_count }}</span></td>
+      <td><a href="{{ url_for('memory_audit.view_report', filename=report.filename) }}" class="btn btn-primary btn-sm">查看详情</a></td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <div class="empty-icon">🔬</div>
+    <p>暂无检查报告。点击上方按钮开始检查。</p>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

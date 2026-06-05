@@ -68,6 +68,24 @@ def delete_long_memory(index: int):
     return _flash_redirect(url_for("memory.short_memory"), "无效索引", "error")
 
 
+@memory_bp.route("/long/<int:index>/edit", methods=["POST"])
+@login_required
+def edit_long_memory(index: int):
+    """编辑单条长期记忆。"""
+    ctx = _ctx()
+    new_text = (request.form.get("content") or "").strip()
+    if not new_text:
+        return _flash_redirect(url_for("memory.short_memory"), "内容不能为空", "error")
+    if 0 <= index < len(ctx.memory.long_memory):
+        old = ctx.memory.long_memory[index]
+        ctx.memory.long_memory[index] = new_text
+        ctx.memory.save_long_memory()
+        audit_log("编辑记忆", f"#{index + 1}: {old[:40]} → {new_text[:40]}")
+        logger.info("Web panel: edited long memory item #%d", index + 1)
+        return _flash_redirect(url_for("memory.short_memory"), f"已更新 #{index + 1}")
+    return _flash_redirect(url_for("memory.short_memory"), "无效索引", "error")
+
+
 @memory_bp.route("/long/refine", methods=["POST"])
 @login_required
 def refine_long_memory():

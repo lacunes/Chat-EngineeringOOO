@@ -2,11 +2,61 @@
 {% block title %}配置中心{% endblock %}
 {% block content %}
 <h1 class="page-title">⚙ 配置中心</h1>
-<p class="page-subtitle">管理剧情和机器人行为参数（第二阶段完善）</p>
-<div class="card">
-  <div class="empty-state">
-    <div class="empty-icon">🔧</div>
-    <p>配置中心将在第二阶段完善。<br>目前请通过编辑 .env 文件修改配置。</p>
+<p class="page-subtitle">管理剧情和机器人行为参数。保存后自动备份 .env，部分参数需重启生效。</p>
+
+<form method="post" action="{{ url_for('config_center.save') }}">
+  <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+  {% for cfg in configs %}
+  <div class="card">
+    <div class="config-item">
+      <div class="config-info">
+        <div class="config-name">{{ cfg.name }}</div>
+        <div class="config-desc">{{ cfg.desc }}</div>
+        {% if cfg.range %}
+        <div class="config-range">推荐范围：{{ cfg.range[0] }} ~ {{ cfg.range[1] }}</div>
+        {% endif %}
+      </div>
+      <div class="config-input">
+        {% set cur_val = current_values.get(cfg.key, '') %}
+
+        {% if cfg.type == 'select' %}
+          <select name="{{ cfg.key }}">
+          {% if cfg.options_dynamic %}
+            {% for opt in world_options %}
+            <option value="{{ opt.value }}" {% if cur_val == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+          {% else %}
+            {% for opt in cfg.options %}
+            <option value="{{ opt.value }}" {% if cur_val == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+          {% endif %}
+          </select>
+
+        {% elif cfg.type == 'bool' %}
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" name="{{ cfg.key }}" value="true" {% if cur_val == 'true' %}checked{% endif %}>
+            <span>{% if cur_val == 'true' %}已开启{% else %}已关闭{% endif %}</span>
+          </label>
+
+        {% elif cfg.type == 'float' %}
+          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}"
+                 {% if cfg.range %}min="{{ cfg.range[0] }}" max="{{ cfg.range[1] }}"{% endif %}
+                 {% if cfg.step %}step="{{ cfg.step }}"{% else %}step="0.01"{% endif %}>
+
+        {% else %}
+          {# int 或其他 #}
+          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}"
+                 {% if cfg.range %}min="{{ cfg.range[0] }}" max="{{ cfg.range[1] }}"{% endif %}>
+        {% endif %}
+      </div>
+    </div>
   </div>
-</div>
+  {% endfor %}
+
+  <div class="btn-group" style="margin-top:20px;">
+    <button type="submit" class="btn btn-primary btn-lg">💾 保存全部配置</button>
+    <span class="text-muted" style="font-size:12px;margin-left:8px;">保存前会自动备份 .env 文件</span>
+  </div>
+</form>
 {% endblock %}

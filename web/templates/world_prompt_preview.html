@@ -2,9 +2,14 @@
 {% block title %}Prompt 预览{% endblock %}
 {% block content %}
 <h1 class="page-title">📋 Prompt 预览 - {{ world_name }}</h1>
-<p class="page-subtitle">这是构建后发送给模型的完整系统提示词预览（第二阶段完善）</p>
+<p class="page-subtitle">以下是构建后发送给模型的完整系统提示词（含关系、时间等动态数据）</p>
+
 <div class="card">
-  <pre style="white-space:pre-wrap;font-family:var(--font-mono);font-size:13px;line-height:1.6;color:var(--text-secondary);">{{ prompt_text }}</pre>
+  <pre style="white-space:pre-wrap;font-family:var(--font-mono);font-size:13px;line-height:1.6;color:var(--text-secondary);max-height:600px;overflow-y:auto;">{{ prompt_text }}</pre>
 </div>
-<a href="{{ url_for('worlds.edit_world', name=world_name) }}" class="btn btn-ghost">← 返回编辑</a>
+
+<div class="btn-group">
+  <a href="{{ url_for('worlds.edit_world', name=world_name) }}" class="btn btn-ghost">← 返回编辑</a>
+  <a href="{{ url_for('worlds.list_worlds') }}" class="btn btn-ghost">🌍 世界列表</a>
+</div>
 {% endblock %}

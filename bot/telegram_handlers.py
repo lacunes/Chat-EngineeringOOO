@@ -1,8 +1,10 @@
 import asyncio
+import json
 import logging
 import random
 import time
 from functools import wraps
+from pathlib import Path
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -300,6 +302,13 @@ class RoleplayBot:
             system_prompt + "\n" + prompts.TIME_INJECT_INSTRUCTION + time_summary
         )
 
+        # ── 注入剧情节奏指令（runtime_directive.json）──
+        directive = _load_runtime_directive()
+        if directive.get("enabled"):
+            directive_prompt = _build_directive_prompt(directive)
+            if directive_prompt:
+                system_prompt = system_prompt + "\n" + directive_prompt
+
         # ── 主 API 调用（关键路径，不阻塞）──
         reply, finish = await self.client.chat(
             self.memory.build_messages(system_prompt),
@@ -350,3 +359,36 @@ class RoleplayBot:
                 self._last_maintenance_time = time.time()
 
         asyncio.create_task(_run())
+
+
+# ═══════════════════════════════════════════════════════════
+# 运行时导演指令（runtime_directive.json）
+# ═══════════════════════════════════════════════════════════
+
+def _load_runtime_directive() -> dict:
+    """加载剧情节奏指令文件。"""
+    from config import settings
+    path = Path(settings.BASE_DIR) / "runtime_directive.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _build_directive_prompt(directive: dict) -> str:
+    """根据指令构建注入到 system prompt 的导演提示。"""
+    phase = directive.get("story_phase", "")
+    tendency = directive.get("next_tendency", "")
+    if not phase and not tendency:
+        return ""
+
+    lines = ["\n[导演指令]"]
+    if phase:
+        lines.append(f"当前剧情阶段：{phase}。请调整叙事节奏和氛围以匹配此阶段。")
+    if tendency:
+        lines.append(f"下一轮倾向：{tendency}。请在接下来的回复中自然地引导剧情朝此方向发展。")
+
+    lines.append("注意：这是临时导演提示，不要直接对用户说出这些指令，而是在叙事中自然体现。")
+    return "\n".join(lines)

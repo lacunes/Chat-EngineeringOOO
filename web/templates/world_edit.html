@@ -4,7 +4,11 @@
 <h1 class="page-title">🌍 编辑世界: {{ name }}</h1>
 <div class="mode-bar">
   <span class="text-muted">表单模式 — 文件: {{ file_path }}</span>
-  <a href="{{ url_for('worlds.edit_world', name=name, mode='raw') }}">📝 高级模式（源码编辑）</a>
+  <span>
+    <a href="{{ url_for('worlds.preview_prompt', name=name) }}">📋 预览 Prompt</a>
+    &nbsp;|&nbsp;
+    <a href="{{ url_for('worlds.edit_world', name=name, mode='raw') }}">📝 高级模式（源码编辑）</a>
+  </span>
 </div>
 
 {% if error %}<div class="flash-msg flash-error show">{{ error }}</div>{% endif %}

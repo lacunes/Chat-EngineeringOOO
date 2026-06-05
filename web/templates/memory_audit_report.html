@@ -2,11 +2,120 @@
 {% block title %}检查报告{% endblock %}
 {% block content %}
 <h1 class="page-title">📋 记忆污染检查报告</h1>
-<p class="page-subtitle">{{ report.time }}</p>
+<p class="page-subtitle">{{ report.timestamp[:19] }} · {{ report.total_items }} 条记忆 · {{ report.issue_count }} 个问题</p>
+
+{% set issue_types = {
+    'duplicate': '重复',
+    'contradiction': '矛盾',
+    'outdated': '过时',
+    'hallucination_risk': '幻觉风险',
+    'too_trivial': '过细无价值',
+    'unclear_subject': '主语不清',
+    'too_long': '过长',
+    'too_short': '过短',
+    'duplicate_semantic': '语义重复'
+} %}
+
+{% if report.issues %}
+{% for issue in report.issues %}
+{% set issue_num = loop.index0 %}
+<div class="card" style="{% if issue.get('resolved') %}opacity:0.5{% endif %}">
+  <div class="card-header" style="justify-content:flex-start;gap:12px;">
+    <span class="badge {% if issue.type in ('duplicate','hallucination_risk','duplicate_semantic') %}badge-red
+           {% elif issue.type in ('contradiction','outdated','unclear_subject') %}badge-orange
+           {% elif issue.type in ('too_trivial','too_short') %}badge-purple
+           {% else %}badge-blue{% endif %}">
+      {{ issue_types.get(issue.type, issue.type) }}
+    </span>
+    {% if issue.get('resolved') %}
+    <span class="badge badge-green">已处理</span>
+    {% endif %}
+  </div>
+
+  <p style="margin-bottom:12px;">{{ issue.description }}</p>
+
+  <!-- 涉及记忆原文 -->
+  <div style="margin-bottom:12px;">
+    <strong class="text-muted" style="font-size:12px;">涉及记忆：</strong>
+    {% for idx in issue.indices %}
+    {% set item = report.items[idx] if idx < report.items|length else none %}
+    <div class="memory-card" style="margin-top:6px;">
+      <div class="mem-index">#{{ idx + 1 }}</div>
+      <div class="mem-text">{{ item.text if item else '(已删除)' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if issue.suggested_text %}
+  <div style="margin-bottom:12px;background:rgba(74,158,255,.08);border-radius:6px;padding:10px 14px;">
+    <strong class="text-info" style="font-size:12px;">💡 建议文本：</strong>
+    <p style="font-size:14px;margin-top:4px;">{{ issue.suggested_text }}</p>
+  </div>
+  {% endif %}
+
+  {% if issue.suggested_action and not issue.get('resolved') %}
+  <div class="text-muted" style="font-size:12px;margin-bottom:12px;">
+    建议操作: {{ issue.suggested_action }}
+    {% if issue.suggested_action == 'merge' %}（合并涉及条目）{% endif %}
+    {% if issue.suggested_action == 'rewrite' %}（改写涉及条目）{% endif %}
+    {% if issue.suggested_action == 'delete' %}（删除涉及条目）{% endif %}
+  </div>
+  {% endif %}
+
+  {% if not issue.get('resolved') %}
+  <div class="btn-group">
+    {% if issue.suggested_action in ('merge','rewrite','delete') and issue.suggested_text %}
+    <form method="post" action="{{ url_for('memory_audit.apply_action', filename=filename) }}" style="display:inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="adopt">
+      <input type="hidden" name="issue_index" value="{{ issue_num }}">
+      <button type="submit" class="btn btn-success btn-sm" data-confirm="确认采用建议？{% if issue.suggested_action == 'delete' %}此操作将删除涉及条目。{% endif %}">✅ 采用建议</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('memory_audit.apply_action', filename=filename) }}" style="display:inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="delete_item">
+      <input type="hidden" name="issue_index" value="{{ issue_num }}">
+      <button type="submit" class="btn btn-danger btn-sm" data-confirm="确认直接删除涉及的记忆条目？">🗑 删除条目</button>
+    </form>
+    <form method="post" action="{{ url_for('memory_audit.apply_action', filename=filename) }}" style="display:inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="ignore">
+      <input type="hidden" name="issue_index" value="{{ issue_num }}">
+      <button type="submit" class="btn btn-ghost btn-sm">👁 忽略</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
 <div class="card">
   <div class="empty-state">
-    <p>报告详情将在第二阶段完善。</p>
+    <div class="empty-icon">✅</div>
+    <p>未发现问题，长期记忆状态良好！</p>
   </div>
 </div>
-<a href="{{ url_for('memory_audit.index') }}" class="btn btn-ghost">← 返回检查列表</a>
+{% endif %}
+
+<!-- 手动编辑 -->
+<div class="card">
+  <div class="card-header"><h2>手动编辑记忆</h2></div>
+  {% for item in report.items %}
+  <div class="memory-card" style="margin-bottom:8px;">
+    <div class="mem-index">#{{ item.index + 1 }}</div>
+    <div class="mem-text" style="margin-bottom:6px;">{{ item.text }}</div>
+    <form method="post" action="{{ url_for('memory_audit.manual_edit', filename=filename) }}" class="btn-group">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="item_index" value="{{ item.index }}">
+      <input type="text" name="new_text" value="{{ item.text }}" style="width:400px;">
+      <button type="submit" class="btn btn-primary btn-sm">✏️ 编辑</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="btn-group" style="margin-top:8px;">
+  <a href="{{ url_for('memory_audit.index') }}" class="btn btn-ghost">← 返回检查列表</a>
+  <a href="{{ url_for('memory.short_memory') }}" class="btn btn-ghost">🧠 记忆管理</a>
+</div>
 {% endblock %}

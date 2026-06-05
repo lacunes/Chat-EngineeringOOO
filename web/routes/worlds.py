@@ -245,6 +245,48 @@ def delete_world(name: str):
                            f"世界 '{name}' 已删除（备份为 .py.deleted）")
 
 
+@worlds_bp.route("/<name>/preview")
+@login_required
+def preview_prompt(name: str):
+    """预览最终构建后的系统 Prompt。"""
+    if not name.isidentifier():
+        return _flash_redirect(url_for("worlds.list_worlds"), "无效的世界名", "error")
+
+    file_path = settings.BASE_DIR / "worlds" / f"{name}.py"
+    if not file_path.exists():
+        return _flash_redirect(url_for("worlds.list_worlds"), f"世界 '{name}' 不存在", "error")
+
+    ctx = _ctx()
+    try:
+        import importlib
+        import sys
+        world_module = importlib.import_module(f"worlds.{name}")
+        # 如果模块已加载过缓存，重新加载以获取最新修改
+        if f"worlds.{name}" in sys.modules:
+            world_module = importlib.reload(sys.modules[f"worlds.{name}"])
+    except Exception as exc:
+        return _flash_redirect(url_for("worlds.edit_world", name=name),
+                               f"无法加载世界文件: {exc}", "error")
+
+    # 构建系统 Prompt（与 generate_reply 逻辑一致，但不含动态数据）
+    system_prompt = world_module.SYSTEM_PROMPT
+
+    # 关系摘要（如果当前世界匹配）
+    if name == ctx.world.WORLD_NAME:
+        from config import prompts
+        relation_summary = ctx.relationship_manager.get_summary()
+        if relation_summary:
+            system_prompt += "\n" + prompts.RELATION_INJECT_INSTRUCTION + relation_summary
+        time_summary = ctx.time_manager.get_summary()
+        if time_summary:
+            system_prompt += "\n" + time_summary
+
+    return render_template("world_prompt_preview.html",
+                           world_name=name,
+                           prompt_text=system_prompt,
+                           ctx=ctx)
+
+
 # ═══════════════════════════════════════════════════════════
 # 世界文件解析与写回（从旧 web/templates.py 迁移）
 # ═══════════════════════════════════════════════════════════
