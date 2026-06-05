@@ -10,6 +10,7 @@ from bot.deepseek_client import DeepSeekClient
 from bot.memory_manager import MemoryManager
 from bot.relationship_manager import RelationshipManager
 from bot.telegram_handlers import RoleplayBot
+from bot.time_manager import TimeManager
 from bot.utils import load_world
 from config import settings
 from web.app import AppContext, create_app, register_routes
@@ -53,6 +54,9 @@ COMMANDS = {
     # 低频命令靠后
     "relations":      "关系摘要",
     "relation_full":  "完整关系",
+    "time":           "当前时间",
+    "next_time":      "推进时段",
+    "next_day":       "推进一天",
     "start":          "启动",
     "reset":          "重开",
 }
@@ -89,7 +93,8 @@ def main() -> None:
     client = DeepSeekClient(settings.DEEPSEEK_KEY, settings.MODEL_NAME)
     memory = MemoryManager(world.WORLD_NAME)
     relationships = RelationshipManager(world.WORLD_NAME)
-    roleplay_bot = RoleplayBot(world, memory, client, relationships)
+    time_mgr = TimeManager(world.WORLD_NAME)
+    roleplay_bot = RoleplayBot(world, memory, client, relationships, time_mgr)
 
     set_bot_commands()
 
@@ -106,6 +111,9 @@ def main() -> None:
         "continue":      roleplay_bot.cmd_continue,
         "relations":     roleplay_bot.cmd_relations,
         "relation_full": roleplay_bot.cmd_relation_full,
+        "time":          roleplay_bot.cmd_time,
+        "next_time":     roleplay_bot.cmd_next_time,
+        "next_day":      roleplay_bot.cmd_next_day,
     }
     for cmd in COMMANDS:
         app.add_handler(CommandHandler(cmd, handler_map[cmd]))
@@ -118,7 +126,7 @@ def main() -> None:
     # 在不同版本中对事件循环的管理方式不同）。
 
     # ── 启动 Web 管理面板（守护线程）──
-    ctx = AppContext(world, memory, client, roleplay_bot.npc_manager, relationships, time.time())
+    ctx = AppContext(world, memory, client, roleplay_bot.npc_manager, relationships, time_mgr, time.time())
     web_app = create_app(ctx)
     register_routes(web_app)
     threading.Thread(

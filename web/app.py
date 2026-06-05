@@ -23,12 +23,13 @@ logger = logging.getLogger(__name__)
 
 class AppContext:
     """Flask 与 Bot 共享的状态容器。"""
-    def __init__(self, world, memory, client, npc_manager, relationship_manager, start_time: float):
+    def __init__(self, world, memory, client, npc_manager, relationship_manager, time_manager, start_time: float):
         self.world = world
         self.memory = memory
         self.client = client
         self.npc_manager = npc_manager
         self.relationship_manager = relationship_manager
+        self.time_manager = time_manager
         self.start_time = start_time
 
 
@@ -165,8 +166,9 @@ def register_routes(app: Flask) -> None:
         ctx = _ctx()
         ctx.memory.reset()
         ctx.relationship_manager.reset()
-        logger.info("Web panel: memory + relationships reset for world %s", ctx.world.WORLD_NAME)
-        return _flash_redirect("/", "当前世界记忆和关系网络已清空")
+        ctx.time_manager.reset()
+        logger.info("Web panel: memory + relationships + time reset for world %s", ctx.world.WORLD_NAME)
+        return _flash_redirect("/", "当前世界记忆、关系网络和时间均已重置")
 
     # ── 世界管理 ────────────────────────────────────
 
@@ -399,6 +401,62 @@ def register_routes(app: Flask) -> None:
         ctx.relationship_manager.save()
         logger.info("Web panel: saved relationships (structured) for %s", ctx.world.WORLD_NAME)
         return _flash_redirect("/relations", "关系网络已保存")
+
+    # ── 时间状态 ────────────────────────────────────
+
+    @app.route("/time", methods=["GET"])
+    @require_auth
+    def view_time():
+        ctx = _ctx()
+        tm = ctx.time_manager
+        return templates.time_page(
+            world_name=ctx.world.WORLD_NAME,
+            day=tm.day,
+            time_period=tm.time_period,
+            season=tm.season,
+            recent_days=tm.recent_days,
+        )
+
+    @app.route("/time", methods=["POST"])
+    @require_auth
+    def save_time():
+        ctx = _ctx()
+        tm = ctx.time_manager
+        action = request.form.get("action", "save")
+
+        if action == "advance_period":
+            tm.advance_period()
+            return _flash_redirect("/time", f"时段推进 → {tm.time_period}")
+        elif action == "advance_day":
+            tm.advance_day()
+            return _flash_redirect("/time", f"推进到第{tm.day}天清晨")
+
+        # save
+        try:
+            tm.day = max(1, int(request.form.get("day", str(tm.day))))
+        except ValueError:
+            pass
+        tm.time_period = request.form.get("time_period", tm.time_period)
+        tm.season = request.form.get("season", tm.season)
+        tm.recent_days = [
+            line.strip() for line in
+            (request.form.get("recent_days") or "").split("\n")
+            if line.strip()
+        ]
+        tm.save()
+        logger.info("Web panel: saved time state for %s", ctx.world.WORLD_NAME)
+        return _flash_redirect("/time", "时间状态已保存")
+
+    @app.route("/time/<int:index>/delete", methods=["POST"])
+    @require_auth
+    def delete_time_note(index: int):
+        ctx = _ctx()
+        tm = ctx.time_manager
+        if 0 <= index < len(tm.recent_days):
+            removed = tm.recent_days.pop(index)
+            tm.save()
+            return _flash_redirect("/time", f"已删除: {removed[:30]}…")
+        return _flash_redirect("/time", "无效索引", "error")
 
     # ── 日志 ────────────────────────────────────────
 

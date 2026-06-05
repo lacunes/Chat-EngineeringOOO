@@ -85,6 +85,7 @@ def base(title: str, body: str, refresh_sec: int = 0) -> str:
   <a href="/memory/long"{' class="active"' if title.startswith("长期") else ""}>🧠 长期记忆</a>
   <a href="/worlds"{' class="active"' if title.startswith("世界") else ""}>🌍 世界</a>
   <a href="/relations"{' class="active"' if title.startswith("关系") else ""}>💞 关系</a>
+  <a href="/time"{' class="active"' if title.startswith("时间") else ""}>⏰ 时间</a>
   <a href="/logs"{' class="active"' if title.startswith("日志") else ""}>📜 日志</a>
 </div>
 <div class="container">
@@ -478,4 +479,86 @@ def relations_page_raw(world_name: str, json_text: str, error: str = "") -> str:
 """
     return base("关系网络", body)
 
+
+# ── 时间状态 ────────────────────────────────────────
+
+TIME_PERIOD_OPTIONS = ["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜"]
+SEASON_OPTIONS = ["春", "夏", "秋", "冬"]
+
+
+def time_page(world_name: str, day: int, time_period: str, season: str, recent_days: list[str]) -> str:
+    period_select = "".join(
+        f'<option value="{p}"{" selected" if p == time_period else ""}>{p}</option>'
+        for p in TIME_PERIOD_OPTIONS
+    )
+    season_select = "".join(
+        f'<option value="{s}"{" selected" if s == season else ""}>{s}</option>'
+        for s in SEASON_OPTIONS
+    )
+    notes_text = "\n".join(recent_days)
+    notes_rows = ""
+    for i, note in enumerate(recent_days):
+        notes_rows += f"""<tr>
+  <td style="width:40px;text-align:right;color:#aaa;">{i + 1}</td>
+  <td>{note}</td>
+  <td style="width:60px;text-align:center;">
+    <form method="post" action="/time/{i}/delete" style="display:inline">
+      <button class="btn btn-danger btn-sm">删除</button>
+    </form>
+  </td>
+</tr>"""
+
+    body = f"""
+<h1>⏰ 时间状态: {world_name}</h1>
+
+<div class="card">
+  <form method="post" action="/time">
+  <input type="hidden" name="action" value="save">
+  <div style="display:flex;gap:20px;align-items:end;flex-wrap:wrap;">
+    <div class="world-field" style="flex:0 0 auto;">
+      <label>天数</label>
+      <input type="number" name="day" value="{day}" min="1" style="width:80px;">
+    </div>
+    <div class="world-field" style="flex:0 0 auto;">
+      <label>时段</label>
+      <select name="time_period" style="padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;">{period_select}</select>
+    </div>
+    <div class="world-field" style="flex:0 0 auto;">
+      <label>季节</label>
+      <select name="season" style="padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;">{season_select}</select>
+    </div>
+    <div style="flex:0 0 auto;padding-bottom:12px;">
+      <button class="btn btn-primary">💾 保存</button>
+    </div>
+  </div>
+  </form>
+</div>
+
+<div class="card">
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <form method="post" action="/time" style="display:inline">
+      <input type="hidden" name="action" value="advance_period">
+      <button class="btn btn-primary">⏭ 推进时段</button>
+    </form>
+    <form method="post" action="/time" style="display:inline">
+      <input type="hidden" name="action" value="advance_day">
+      <button class="btn" style="background:#f39c12;color:#fff;">📅 推进一天</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>近日摘要</h2>
+  <form method="post" action="/time">
+  <input type="hidden" name="action" value="save">
+  <textarea name="recent_days" rows="6" style="font-size:13px;">{notes_text}</textarea>
+  <input type="hidden" name="day" value="{day}">
+  <input type="hidden" name="time_period" value="{time_period}">
+  <input type="hidden" name="season" value="{season}">
+  <button class="btn btn-primary" style="margin-top:8px;">💾 保存摘要</button>
+  </form>
+  {f'<table style="margin-top:12px;">{notes_rows}</table>' if notes_rows else '<p style="color:#aaa;margin-top:12px;">暂无摘要</p>'}
+</div>
+"""
+    return base("时间状态", body)
 

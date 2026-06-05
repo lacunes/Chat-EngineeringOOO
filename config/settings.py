@@ -216,6 +216,13 @@ RELATION_EXTRACT_INTERVAL = _get_int("RELATION_EXTRACT_INTERVAL", 2)
 RELATION_SIGNIFICANT_THRESHOLD = _get_int("RELATION_SIGNIFICANT_THRESHOLD", 3)
 
 # ═══════════════════════════════════════════════════════════════
+# 时间流逝配置
+# ═══════════════════════════════════════════════════════════════
+
+# 每 N 次 AI 回复后自动推进一个时段（默认 6）。
+TIME_ADVANCE_INTERVAL = _get_int("TIME_ADVANCE_INTERVAL", 6)
+
+# ═══════════════════════════════════════════════════════════════
 # Web 管理面板配置
 # ═══════════════════════════════════════════════════════════════
 

@@ -34,11 +34,12 @@ class RoleplayBot:
     世界观来自 worlds/*.py，记忆由 MemoryManager 管理，模型调用由 DeepSeekClient 管理。
     """
 
-    def __init__(self, world, memory, client, relationship_manager):
+    def __init__(self, world, memory, client, relationship_manager, time_manager):
         self.world = world
         self.memory = memory
         self.client = client
         self.relationship_manager = relationship_manager
+        self.time_manager = time_manager
         # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
         self.npc_manager = NPCManager(world, memory)
         # 防止后台记忆维护任务堆积
@@ -92,9 +93,10 @@ class RoleplayBot:
 
         self.memory.reset()
         self.relationship_manager.reset()
+        self.time_manager.reset()
         self.memory.reset_confirm_users.pop(user_id, None)
         logger.info("User %s reset world %s", user_id, self.world.WORLD_NAME)
-        await update.message.reply_text("已确认，当前世界的记忆和关系网络均已清空。")
+        await update.message.reply_text("已确认，当前世界的记忆、关系网络和时间均已重置。")
 
     @require_auth
     async def cmd_memo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -133,6 +135,30 @@ class RoleplayBot:
         text = self.relationship_manager.get_full_text()
         for part in utils.split_reply(text):
             await update.message.reply_text(part)
+
+    @require_auth
+    async def cmd_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """显示当前时间状态。"""
+        await update.message.reply_text(self.time_manager.get_status_text())
+
+    @require_auth
+    async def cmd_next_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """手动推进一个时段。"""
+        new_period = self.time_manager.advance_period()
+        await update.message.reply_text(
+            f"⏭ 时间推进 → 第{self.time_manager.day}天 · {self.time_manager.season} · {new_period}"
+        )
+
+    @require_auth
+    async def cmd_next_day(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """推进到第二天清晨并生成昨日摘要。"""
+        old_day = self.time_manager.day
+        self.time_manager.advance_day()
+        await update.message.reply_text(
+            f"📅 推进到第{self.time_manager.day}天清晨，正在生成昨日摘要…"
+        )
+        await self.time_manager.generate_day_summary(self.memory.memory, self.client)
+        await update.message.reply_text(self.time_manager.get_status_text())
 
     @require_auth
     async def handle_chat(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -242,6 +268,12 @@ class RoleplayBot:
                 + relation_summary
             )
 
+        # ── 注入时间背景 ──
+        time_summary = self.time_manager.get_summary()
+        system_prompt = (
+            system_prompt + "\n" + prompts.TIME_INJECT_INSTRUCTION + time_summary
+        )
+
         # ── 主 API 调用（关键路径，不阻塞）──
         reply, finish = await self.client.chat(
             self.memory.build_messages(system_prompt),
@@ -252,6 +284,7 @@ class RoleplayBot:
 
         self.memory.add_assistant_message(reply)
         self.relationship_manager.on_assistant_reply()
+        self.time_manager.on_assistant_reply(self.memory.message_count)
         self.memory.save_memory()
 
         # ── 后台记忆维护 + 关系抽取（不阻塞回复）──
