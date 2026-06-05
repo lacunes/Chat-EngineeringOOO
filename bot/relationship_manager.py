@@ -93,12 +93,18 @@ class RelationshipManager:
     # ═══════════════════════════════════════════════════════
 
     def _build_relation_lines(self, prefix: str = "- ", indent: str = "") -> list[str]:
-        """构建关系摘要行（去重逻辑）。"""
+        """构建关系摘要行（去重逻辑）。≥ DEADLOCK_THRESHOLD 的值显示 🔒。"""
         lines = []
         for key, rel in self.relations.items():
-            parts = [f"{label}{rel.get(dim, 0)}"
-                     for dim, label in DIMENSION_LABELS.items()
-                     if rel.get(dim, 0) != 0]
+            parts = []
+            for dim, label in DIMENSION_LABELS.items():
+                val = rel.get(dim, 0)
+                if val == 0:
+                    continue
+                if val >= self.DEADLOCK_THRESHOLD:
+                    parts.append(f"🔒{label}{val}")
+                else:
+                    parts.append(f"{label}{val}")
             if parts:
                 lines.append(f"{indent}{prefix}{key}：{', '.join(parts)}")
         return lines
@@ -132,7 +138,9 @@ class RelationshipManager:
         for key, rel in self.relations.items():
             parts = []
             for dim, label in DIMENSION_LABELS.items():
-                parts.append(f"  {label}: {rel.get(dim, 0)}")
+                val = rel.get(dim, 0)
+                lock = "🔒" if val >= self.DEADLOCK_THRESHOLD else ""
+                parts.append(f"  {lock}{label}: {val}")
             notes = rel.get("notes", [])
             note_text = f"\n  备注: {'; '.join(notes[-5:])}" if notes else ""
             last = rel.get("last_updated", 0)
@@ -193,6 +201,9 @@ class RelationshipManager:
                 return existing
         return name
 
+    # 维度值 ≥ DEADLOCK_THRESHOLD 时视为"死锁"，不再被自动抽取改变
+    DEADLOCK_THRESHOLD: int = 110
+
     # 不纳入关系网络的名称（玩家角色、通用称呼等）
     _IGNORED_NAMES: set[str] = {"用户", "玩家", "我", "你", "他", "她", "它"}
 
@@ -225,6 +236,9 @@ class RelationshipManager:
             for dim in DIMENSION_LABELS:
                 if dim in delta:
                     old = rel[dim]
+                    if old >= self.DEADLOCK_THRESHOLD:
+                        # 死锁维度：手动设为 110 后不再自动变化
+                        continue
                     d = int(delta[dim])
                     if d == 0:
                         continue

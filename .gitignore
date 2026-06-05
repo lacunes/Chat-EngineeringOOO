@@ -9,6 +9,10 @@ __pycache__/
 *.log
 memory/
 *.bak
+/关系网优化.txt
+/关系网络创建.txt
+/计划书.txt
+/计划书2.txt
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

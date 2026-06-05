@@ -361,7 +361,7 @@ def register_routes(app: Flask) -> None:
                 rel = {}
                 for dim in dims:
                     try:
-                        rel[dim] = max(0, min(100, int(request.form.get(f"rel_{i}_{dim}", "0") or 0)))
+                        rel[dim] = max(0, min(110, int(request.form.get(f"rel_{i}_{dim}", "0") or 0)))
                     except ValueError:
                         rel[dim] = 0
                 notes_text = (request.form.get(f"rel_{i}_notes") or "").strip()
@@ -378,7 +378,7 @@ def register_routes(app: Flask) -> None:
             rel = {}
             for dim in dims:
                 try:
-                    rel[dim] = max(0, min(100, int(request.form.get(f"new_{dim}", "0") or 0)))
+                    rel[dim] = max(0, min(110, int(request.form.get(f"new_{dim}", "0") or 0)))
                 except ValueError:
                     rel[dim] = 0
             notes_text = (request.form.get("new_notes") or "").strip()

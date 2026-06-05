@@ -401,7 +401,7 @@ def relations_page_structured(world_name: str, relations: dict, error: str = "")
         to = parts[1].strip() if len(parts) > 1 else ""
         notes = "\n".join(rel.get("notes", []))
         cells = "".join(
-            f'<td><input type="number" name="rel_{idx}_{dim}" value="{rel.get(dim,0)}" min="0" max="100"></td>'
+            f'<td><input type="number" name="rel_{idx}_{dim}" value="{rel.get(dim,0)}" min="0" max="110"></td>'
             for dim, _ in DIM_LABELS
         )
         rows += f"""<tr>
@@ -418,7 +418,7 @@ def relations_page_structured(world_name: str, relations: dict, error: str = "")
     body = f"""
 <h1>💞 关系网络: {world_name}</h1>
 <div class="mode-bar">
-  <span style="color:#888;font-size:13px;">表格编辑模式（范围 0-100）</span>
+  <span style="color:#888;font-size:13px;">表格编辑模式（0-100 正常，设为 110 可锁死该维度不再自动变化）</span>
   <a href="/relations?mode=raw">📝 高级模式（JSON 编辑）</a>
 </div>
 {error_html}
@@ -436,7 +436,7 @@ def relations_page_structured(world_name: str, relations: dict, error: str = "")
   <tr>
     <td><input type="text" name="new_from" placeholder="角色A" style="width:70px;"></td>
     <td><input type="text" name="new_to" placeholder="角色B" style="width:70px;"></td>
-    {"".join(f'<td><input type="number" name="new_{dim}" value="0" min="0" max="100"></td>' for dim, _ in DIM_LABELS)}
+    {"".join(f'<td><input type="number" name="new_{dim}" value="0" min="0" max="110"></td>' for dim, _ in DIM_LABELS)}
     <td><textarea name="new_notes" placeholder="备注" style="width:140px;"></textarea></td>
     <td></td>
   </tr>
