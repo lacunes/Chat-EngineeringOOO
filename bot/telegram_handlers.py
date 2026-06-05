@@ -152,7 +152,6 @@ class RoleplayBot:
     @require_auth
     async def cmd_next_day(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """推进到第二天清晨并生成昨日摘要。"""
-        old_day = self.time_manager.day
         self.time_manager.advance_day()
         await update.message.reply_text(
             f"📅 推进到第{self.time_manager.day}天清晨，正在生成昨日摘要…"

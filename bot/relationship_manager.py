@@ -9,7 +9,6 @@ import logging
 import os
 import re
 import tempfile
-from pathlib import Path
 
 from config import prompts, settings
 

@@ -9,7 +9,6 @@ import logging
 import os
 import tempfile
 import time as _time
-from pathlib import Path
 
 from config import prompts, settings
 
@@ -17,7 +16,6 @@ from config import prompts, settings
 logger = logging.getLogger(__name__)
 
 TIME_PERIODS = ["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜"]
-SEASONS = ["春", "夏", "秋", "冬"]
 
 
 class TimeManager:
@@ -93,11 +91,10 @@ class TimeManager:
 
     def get_summary(self) -> str:
         """生成注入 system prompt 的时间摘要。"""
-        season_display = self.season
         recent = "；".join(self.recent_days[-3:]) if self.recent_days else "暂无记录"
         return (
             f"\n[当前时间]\n"
-            f"第{self.day}天，{season_display}，{self.time_period}。\n"
+            f"第{self.day}天，{self.season}，{self.time_period}。\n"
             f"近日：{recent}"
         )
 
