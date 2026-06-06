@@ -292,12 +292,20 @@ class RelationshipManager:
             return
 
         recent = memory[-settings.AUTO_MEMORY_LOOKBACK:]
+        trigger_reason = "interval_reached"
+
+        # 本地关键词预检（零 API 开销）
         if settings.RELATION_EXTRACT_REQUIRE_SIGNAL:
             if not _should_extract_relations(recent, self.characters):
-                logger.debug("Relation extract skipped: no signal")
+                logger.debug(
+                    "Relation extract skipped: no signal (%d replies since last, %d chars, %d relations)",
+                    self._reply_count_since_extract, len(self.characters), len(self.relations),
+                )
                 self._reply_count_since_extract = 0
                 self.save()
                 return
+            trigger_reason = "signal_detected"
+
         dialogue = _format_dialogue_for_extraction(recent)
 
         try:
@@ -313,12 +321,31 @@ class RelationshipManager:
             changes = _parse_relation_json(result)
             if changes:
                 msg_idx = len(memory)
+                # 记录变化前数值供日志使用
+                before_snapshot = _snapshot_relations(self.relations)
                 hints = self.apply_changes(changes, msg_idx)
                 if hints:
                     self._pending_hints.extend(hints)
-                    logger.info("Relation extraction: %d changes → %d hints", len(changes), len(hints))
+                    after_snapshot = _snapshot_relations(self.relations)
+                    logger.info(
+                        "Relation extraction [%s]: %d changes → %d hints. Details: %s",
+                        trigger_reason, len(changes), len(hints),
+                        ", ".join(hints),
+                    )
+                    # 输出具体数值变化
+                    _log_relation_deltas(before_snapshot, after_snapshot)
+                else:
+                    logger.info(
+                        "Relation extraction [%s]: %d changes parsed but 0 hints applied (may be deadlocked)",
+                        trigger_reason, len(changes),
+                    )
+            else:
+                logger.info(
+                    "Relation extraction [%s]: no changes detected (AI returned no_change or [])",
+                    trigger_reason,
+                )
         except Exception as exc:
-            logger.warning("Relation extraction failed: %s", exc)
+            logger.warning("Relation extraction failed [%s]: %s", trigger_reason, exc)
         finally:
             self._reply_count_since_extract = 0
             self.save()
@@ -384,3 +411,29 @@ def _parse_relation_json(text: str) -> list:
 
     logger.warning("Failed to parse relation JSON: %s", text[:200])
     return []
+
+
+def _snapshot_relations(relations: dict) -> dict[str, dict]:
+    """对当前关系取快照，仅保存 6 个维度的值。"""
+    dims = ["affection", "trust", "fear", "dependence", "suspicion", "hostility"]
+    snap: dict[str, dict] = {}
+    for key, rel in relations.items():
+        snap[key] = {d: rel.get(d, 0) for d in dims}
+    return snap
+
+
+def _log_relation_deltas(before: dict, after: dict) -> None:
+    """输出关系变化前后数值对比日志。"""
+    all_keys = set(before.keys()) | set(after.keys())
+    for key in sorted(all_keys):
+        b = before.get(key, {})
+        a = after.get(key, {})
+        changed_dims = []
+        for dim in ["affection", "trust", "fear", "dependence", "suspicion", "hostility"]:
+            bv = b.get(dim, 0)
+            av = a.get(dim, 0)
+            if bv != av:
+                sign = "+" if av > bv else ""
+                changed_dims.append(f"{dim}: {bv}→{av} ({sign}{av - bv})")
+        if changed_dims:
+            logger.info("  Relation delta [%s]: %s", key, "; ".join(changed_dims))
