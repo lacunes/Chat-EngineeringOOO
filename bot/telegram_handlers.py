@@ -61,7 +61,17 @@ class RoleplayBot:
     @require_auth
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.info("User %s started world %s", update.effective_user.id, self.world.WORLD_NAME)
-        await update.message.reply_text(self.world.START_SCENE)
+        scene = self.world.START_SCENE
+        await update.message.reply_text(scene)
+
+        # 将开场文本作为 assistant 消息写入短期记忆（避免重复写入）
+        last = self.memory.last_assistant_message()
+        if last != scene:
+            self.memory.add_assistant_message(scene)
+            self.memory.save_memory()
+            logger.debug("START_SCENE written to short-term memory")
+        else:
+            logger.debug("START_SCENE already in memory, skipped")
 
     @require_auth
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

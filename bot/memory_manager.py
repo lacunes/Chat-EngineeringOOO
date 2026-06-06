@@ -99,6 +99,13 @@ class MemoryManager:
         with self._lock:
             self.memory.append({"role": "assistant", "content": text})
 
+    def last_assistant_message(self) -> str | None:
+        """返回最近一条 assistant 消息的文本，没有则返回 None。"""
+        for msg in reversed(self.memory):
+            if msg.get("role") == "assistant":
+                return msg.get("content")
+        return None
+
     def add_long_memory_item(self, text: str) -> None:
         clean = utils.normalize_text(text)
         if clean:
