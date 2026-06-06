@@ -67,9 +67,16 @@ ALLOWED_ID = _get_int("ALLOWED_ID", 0)
 ACTIVE_WORLD = os.getenv("ACTIVE_WORLD", "one").strip().lower()
 
 # DeepSeek 模型名。
-# "deepseek-chat": 最新通用模型（推荐）
-# "deepseek-reasoner": 推理模型（较慢，适合复杂逻辑但不适合角色扮演）
-MODEL_NAME = os.getenv("MODEL_NAME", "deepseek-chat")
+# 默认使用 deepseek-v4-flash（推荐）。
+# 旧名 deepseek-chat / deepseek-reasoner 将在 2026-07-24 废弃，仅为兼容映射。
+# 可通过 .env 覆盖: MODEL_NAME=deepseek-v4-flash
+MODEL_NAME = os.getenv("MODEL_NAME", "deepseek-v4-flash")
+
+# DeepSeek 思考模式（thinking）。
+# "disabled": 非思考模式，适合角色聊天（默认）
+# "enabled":  思考模式，回复前先内部推理，适合复杂逻辑但不建议日常角色聊天
+# 如果不兼容当前模型，设为 disabled 或留空即可。
+DEEPSEEK_THINKING = os.getenv("DEEPSEEK_THINKING", "disabled").strip().lower()
 
 # DeepSeek API 地址。一般不需要改，除非 DeepSeek 变更了 API 域名。
 DEEPSEEK_API_URL = os.getenv(

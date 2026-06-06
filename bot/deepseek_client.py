@@ -108,6 +108,10 @@ class DeepSeekClient:
             "max_tokens": max_tokens if max_tokens is not None else get_reply_length(),
         }
 
+        # ── 思考模式配置 ──
+        if settings.DEEPSEEK_THINKING in ("enabled", "disabled"):
+            payload["thinking"] = {"type": settings.DEEPSEEK_THINKING}
+
         last_error: Exception | None = None
         max_retries = 3
         for attempt in range(max_retries):
