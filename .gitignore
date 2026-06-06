@@ -26,4 +26,5 @@ secrets.json
 *.env.backup.*
 backups/
 web_audit.log
+docs/
 
