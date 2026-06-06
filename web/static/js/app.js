@@ -81,17 +81,40 @@
 
     if (!btn || !sidebar) return;
 
-    btn.addEventListener('click', function() {
-      sidebar.classList.toggle('mobile-open');
-      if (overlay) overlay.classList.toggle('show');
+    function openMenu() {
+      sidebar.classList.add('mobile-open');
+      if (overlay) overlay.classList.add('show');
+      document.body.style.overflow = 'hidden'; // 防止背景滚动
+    }
+
+    function closeMenu() {
+      sidebar.classList.remove('mobile-open');
+      if (overlay) overlay.classList.remove('show');
+      document.body.style.overflow = '';
+    }
+
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (sidebar.classList.contains('mobile-open')) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
     });
 
     if (overlay) {
       overlay.addEventListener('click', function() {
-        sidebar.classList.remove('mobile-open');
-        overlay.classList.remove('show');
+        closeMenu();
       });
     }
+
+    // 点击侧栏内的导航链接后自动关闭
+    sidebar.querySelectorAll('a').forEach(function(link) {
+      link.addEventListener('click', function() {
+        // 延迟一点关闭，让浏览器有时间处理导航
+        setTimeout(closeMenu, 150);
+      });
+    });
   }
 
   // ── 自动关闭模态框 ──

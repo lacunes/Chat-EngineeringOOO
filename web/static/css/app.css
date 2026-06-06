@@ -649,10 +649,13 @@ input[type="checkbox"] {
 /* ── 响应式（移动端）── */
 @media (max-width: 768px) {
   .sidebar {
-    transform: translateX(-100%);
-    transition: transform .25s;
+    left: calc(-1 * var(--sidebar-width));
+    transition: left .25s ease;
+    z-index: 1010;
+    pointer-events: none;
+    box-shadow: 4px 0 16px rgba(0,0,0,.4);
   }
-  .sidebar.mobile-open { transform: translateX(0); }
+  .sidebar.mobile-open { left: 0; pointer-events: auto; }
 
   .main { margin-left: 0; }
 
