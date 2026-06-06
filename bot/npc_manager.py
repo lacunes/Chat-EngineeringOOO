@@ -99,17 +99,19 @@ class NPCManager:
             self._last_timer_check = now
             self._check_timer_triggers()
 
-    def get_stage_directions(self, user_text: str = '') -> str:
+    def get_stage_directions(self, user_text: str = '', forbidden_events: list[str] | None = None) -> str:
         """评估并返回应注入系统提示词的舞台指令。
 
         这是NPC系统的核心入口。流程：
         1. 遍历NPC检查消息触发条件（冷却 + 权重概率 + 关键词感知）
         2. 合并 _pending_directions 中定时器触发的待发送指令
-        3. 生成舞台指令文本并设置冷却
-        4. 返回格式化的舞台指令字符串（无触发则返回空字符串）
+        3. 过滤与 forbidden_events 冲突的指令
+        4. 生成舞台指令文本并设置冷却
+        5. 返回格式化的舞台指令字符串（无触发则返回空字符串）
 
         Args:
             user_text: 用户最新消息文本，用于关键词感知提升相关NPC触发概率
+            forbidden_events: 当前禁止的事件关键词列表（来自剧情状态）
 
         Returns:
             舞台指令字符串，如果无NPC触发则返回空字符串。
@@ -140,6 +142,27 @@ class NPCManager:
 
         if not directions:
             return ''
+
+        # ── 根据 forbidden_events 过滤 ──
+        if forbidden_events:
+            filtered = []
+            filtered_out = []
+            for d in directions:
+                text_lower = d.lower()
+                blocked = False
+                for pattern in forbidden_events:
+                    if pattern.strip().lower() in text_lower:
+                        blocked = True
+                        filtered_out.append(pattern)
+                        break
+                if blocked:
+                    logger.debug("NPC direction filtered by forbidden_event: %s", filtered_out[-1])
+                else:
+                    filtered.append(d)
+            if filtered_out and not filtered:
+                logger.info("All NPC directions blocked by forbidden_events: %s", filtered_out)
+                return ''
+            directions = filtered
 
         # 构建完整的舞台指令块
         header = (

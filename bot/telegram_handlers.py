@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 
 from bot import utils
 from bot.npc_manager import NPCManager
+from bot.story_state import StoryStateManager
 from config import prompts, settings
 
 
@@ -44,6 +45,8 @@ class RoleplayBot:
         self.time_manager = time_manager
         # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
         self.npc_manager = NPCManager(world, memory)
+        # 剧情状态管理器 —— 纯本地 JSON，不影响 API 调用频率
+        self.story_state = StoryStateManager(world.WORLD_NAME, settings.MEMORY_DIR)
         # 防止后台记忆维护任务堆积
         self._bg_maintenance_running = False
         self._last_maintenance_time: float = 0.0
@@ -255,7 +258,11 @@ class RoleplayBot:
         """
         # ── NPC主动行为：更新冷却、获取舞台指令 ──
         self.npc_manager.tick()
-        stage_directions = self.npc_manager.get_stage_directions(user_text)
+        # 获取剧情状态的禁止事件列表
+        forbidden = self.story_state.state.get("forbidden_events", [])
+        stage_directions = self.npc_manager.get_stage_directions(
+            user_text, forbidden_events=forbidden,
+        )
 
         self.memory.add_user_message(user_text)
 
@@ -297,6 +304,12 @@ class RoleplayBot:
 
         time_summary = self.time_manager.get_summary()
         dynamic_parts.append(time_summary)
+
+        # ── 注入剧情状态 ──
+        story_summary = self.story_state.get_summary()
+        if story_summary:
+            dynamic_parts.append(story_summary)
+            logger.debug("Story state injected into dynamic_state")
 
         directive = _load_runtime_directive()
         if directive.get("enabled"):

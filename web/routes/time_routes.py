@@ -1,6 +1,6 @@
 """时间与剧情节奏路由。
 
-管理时间状态 + 剧情阶段 + 下一轮倾向（runtime_directive.json）。
+管理时间状态 + 剧情阶段 + 下一轮倾向（runtime_directive.json）+ 剧情状态（story_state.json）。
 """
 
 import json
@@ -10,6 +10,7 @@ from pathlib import Path
 from flask import Blueprint, render_template, request, redirect, url_for
 
 from config import settings
+from bot.story_state import StoryStateManager, DEFAULT_STORY_STATE
 from web.app import _ctx, audit_log, _flash_redirect
 from web.routes.auth import login_required
 
@@ -21,15 +22,14 @@ STORY_PHASES = ["日常", "争执", "危机", "亲密", "调查", "战斗", "过
 NEXT_TENDENCIES = ["平稳推进", "增加冲突", "增加暧昧", "增加悬念", "让 NPC 主动介入"]
 TIME_PERIODS = ["清晨", "上午", "中午", "下午", "傍晚", "夜晚", "深夜"]
 SEASONS = ["春", "夏", "秋", "冬"]
+PACING_OPTIONS = ["slow", "normal", "intense"]
 
 
 def _directive_path() -> Path:
-    """runtime_directive.json 的路径。"""
     return settings.BASE_DIR / "runtime_directive.json"
 
 
 def _load_directive() -> dict:
-    """加载剧情节奏指令。"""
     path = _directive_path()
     if not path.exists():
         return {"story_phase": "日常", "next_tendency": "平稳推进", "enabled": False}
@@ -40,7 +40,6 @@ def _load_directive() -> dict:
 
 
 def _save_directive(data: dict) -> None:
-    """保存剧情节奏指令。"""
     _directive_path().write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -50,6 +49,10 @@ def index():
     ctx = _ctx()
     tm = ctx.time_manager
     directive = _load_directive()
+
+    # 读取剧情状态
+    story_mgr = StoryStateManager(ctx.world.WORLD_NAME, settings.MEMORY_DIR)
+    story_state = story_mgr.state
 
     return render_template(
         "time.html",
@@ -61,7 +64,9 @@ def index():
         rounds_in_period=tm.rounds_in_current_period,
         story_phases=STORY_PHASES,
         next_tendencies=NEXT_TENDENCIES,
+        pacing_options=PACING_OPTIONS,
         directive=directive,
+        story_state=story_state,
         ctx=ctx,
     )
 
@@ -84,15 +89,32 @@ def save():
         return _flash_redirect(url_for("time_routes.index"),
                                f"推进到第{tm.day}天清晨")
     elif action == "save_directive":
-        # 保存剧情节奏指令
         directive = {
             "enabled": request.form.get("directive_enabled") == "true",
             "story_phase": request.form.get("story_phase", "日常"),
             "next_tendency": request.form.get("next_tendency", "平稳推进"),
         }
         _save_directive(directive)
-        audit_log("编辑剧情节奏", f"阶段={directive['story_phase']}, 倾向={directive['next_tendency']}, 启用={directive['enabled']}")
+        audit_log("编辑剧情节奏", f"阶段={directive['story_phase']}, 倾向={directive['next_tendency']}")
         return _flash_redirect(url_for("time_routes.index"), "剧情节奏指令已保存")
+    elif action == "save_story_state":
+        story_mgr = StoryStateManager(ctx.world.WORLD_NAME, settings.MEMORY_DIR)
+        updates = {
+            "chapter": (request.form.get("ss_chapter") or "").strip(),
+            "scene": (request.form.get("ss_scene") or "").strip(),
+            "location": (request.form.get("ss_location") or "").strip(),
+            "active_characters": _parse_text_list(request.form.get("ss_active_chars", "")),
+            "current_conflict": (request.form.get("ss_conflict") or "").strip(),
+            "current_goal": (request.form.get("ss_goal") or "").strip(),
+            "pacing": request.form.get("ss_pacing", "normal"),
+            "allowed_events": _parse_text_list(request.form.get("ss_allowed", "")),
+            "forbidden_events": _parse_text_list(request.form.get("ss_forbidden", "")),
+            "last_major_event": (request.form.get("ss_last_event") or "").strip(),
+            "notes": (request.form.get("ss_notes") or "").strip(),
+        }
+        story_mgr.update(updates)
+        audit_log("编辑剧情状态", f"章节={updates['chapter']}, 场景={updates['scene']}")
+        return _flash_redirect(url_for("time_routes.index"), "剧情状态已保存")
 
     # save time state
     try:
@@ -108,7 +130,6 @@ def save():
     ]
     tm.save()
     audit_log("编辑时间", f"保存: 第{tm.day}天 {tm.time_period} {tm.season}")
-    logger.info("Web panel: saved time state for %s", ctx.world.WORLD_NAME)
     return _flash_redirect(url_for("time_routes.index"), "时间状态已保存")
 
 
@@ -120,7 +141,19 @@ def delete_note(index: int):
     if 0 <= index < len(tm.recent_days):
         removed = tm.recent_days.pop(index)
         tm.save()
-        audit_log("编辑时间", f"删除摘要: {removed[:30]}…")
+        audit_log("编辑时间", f"删除摘要: {removed[:30]}")
         return _flash_redirect(url_for("time_routes.index"),
                                f"已删除: {removed[:30]}…")
     return _flash_redirect(url_for("time_routes.index"), "无效索引", "error")
+
+
+def _parse_text_list(text: str) -> list[str]:
+    """将逗号/换行分隔的文本解析为列表。"""
+    if not text:
+        return []
+    items = []
+    for line in text.replace(",", "\n").split("\n"):
+        item = line.strip()
+        if item:
+            items.append(item)
+    return items

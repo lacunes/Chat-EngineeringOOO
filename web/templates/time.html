@@ -125,4 +125,89 @@
     <button type="submit" class="btn btn-primary">💾 保存节奏指令</button>
   </form>
 </div>
+
+<!-- 剧情状态编辑 -->
+<div class="card">
+  <div class="card-header"><h2>📖 剧情状态</h2></div>
+  <p class="text-muted" style="margin-bottom:16px;">
+    这些设置写入 story_state.json，注入主聊天 dynamic_state。纯本地管理，不调用 API。
+    留空的字段不会出现在 prompt 中。
+  </p>
+  <form method="post" action="{{ url_for('time_routes.save') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="save_story_state">
+
+    <div class="stats-row" style="margin-bottom:12px;">
+      <div class="form-group" style="flex:1;min-width:150px;">
+        <label>章节</label>
+        <input type="text" name="ss_chapter" value="{{ story_state.chapter }}" placeholder="如：初遇">
+        <div class="hint">当前章节标题。</div>
+      </div>
+      <div class="form-group" style="flex:1;min-width:150px;">
+        <label>场景</label>
+        <input type="text" name="ss_scene" value="{{ story_state.scene }}" placeholder="如：A家中">
+        <div class="hint">当前场景名称。</div>
+      </div>
+      <div class="form-group" style="flex:1;min-width:150px;">
+        <label>地点</label>
+        <input type="text" name="ss_location" value="{{ story_state.location }}" placeholder="如：B的公寓">
+        <div class="hint">当前发生地点。</div>
+      </div>
+      <div class="form-group" style="flex:0 0 140px;">
+        <label>节奏</label>
+        <select name="ss_pacing">
+          {% for p in pacing_options %}
+          <option value="{{ p }}" {% if story_state.pacing == p %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+        <div class="hint">slow / normal / intense</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>在场角色</label>
+      <input type="text" name="ss_active_chars" value="{{ story_state.active_characters|join(', ') }}" placeholder="逗号分隔，如：A, B, 旅馆老板">
+      <div class="hint">当前场景中在场的角色。</div>
+    </div>
+
+    <div class="stats-row" style="margin-bottom:12px;">
+      <div class="form-group" style="flex:1;">
+        <label>当前冲突</label>
+        <input type="text" name="ss_conflict" value="{{ story_state.current_conflict }}" placeholder="如：B缺乏安全感">
+        <div class="hint">当前主要矛盾或紧张关系。</div>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label>当前目标</label>
+        <input type="text" name="ss_goal" value="{{ story_state.current_goal }}" placeholder="如：帮助B适应环境">
+        <div class="hint">剧情当前的推进方向。</div>
+      </div>
+    </div>
+
+    <div class="stats-row" style="margin-bottom:12px;">
+      <div class="form-group" style="flex:1;">
+        <label>允许事件</label>
+        <input type="text" name="ss_allowed" value="{{ story_state.allowed_events|join(', ') }}" placeholder="逗号分隔关键词">
+        <div class="hint">命中关键词的 NPC 事件概率 ×1.5（不影响正常触发的 NPC）。</div>
+      </div>
+      <div class="form-group" style="flex:1;">
+        <label>禁止事件</label>
+        <input type="text" name="ss_forbidden" value="{{ story_state.forbidden_events|join(', ') }}" placeholder="逗号分隔关键词">
+        <div class="hint">命中关键词的 NPC 事件将被过滤（不发出舞台指令）。</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>最近重大事件</label>
+      <input type="text" name="ss_last_event" value="{{ story_state.last_major_event }}" placeholder="一句话描述最近发生的重大事件">
+    </div>
+
+    <div class="form-group">
+      <label>导演备注</label>
+      <textarea name="ss_notes" rows="3" placeholder="给自己看的备注，不会注入 prompt">{{ story_state.notes }}</textarea>
+      <div class="hint">仅存档参考，不会发给 AI。</div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">💾 保存剧情状态</button>
+  </form>
+</div>
 {% endblock %}
