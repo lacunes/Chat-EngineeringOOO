@@ -26,15 +26,60 @@ from web.app import AppContext, create_app
 
 
 def setup_logging() -> None:
-    # 同时输出到终端和 bot.log，VPS/tmux 排查问题会方便很多。
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        handlers=[
-            logging.FileHandler(settings.LOG_FILE, encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
-    )
+    """配置分层日志系统。
+
+    logs/app.log     — 全部日志（INFO+）
+    logs/error.log   — 仅错误（ERROR+）
+    logs/memory.log  — 记忆相关
+    logs/relation.log— 关系相关
+    logs/story.log   — 剧情状态相关
+    logs/security.log— 安全检查相关
+
+    同时保留终端输出，方便 tmux 排查。
+    """
+    settings.LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 根 logger：app.log + 终端
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+
+    # 主日志文件（INFO+）
+    app_handler = logging.FileHandler(settings.LOG_FILE, encoding="utf-8")
+    app_handler.setLevel(logging.INFO)
+    app_handler.setFormatter(fmt)
+    root.addHandler(app_handler)
+
+    # 错误日志文件（ERROR+）
+    err_handler = logging.FileHandler(settings.LOG_ERROR_FILE, encoding="utf-8")
+    err_handler.setLevel(logging.ERROR)
+    err_handler.setFormatter(fmt)
+    root.addHandler(err_handler)
+
+    # 终端输出
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    # ── 专题日志 ──
+    _add_specialty_logger("bot.memory", settings.LOG_MEMORY_FILE, fmt)
+    _add_specialty_logger("bot.relation", settings.LOG_RELATION_FILE, fmt)
+    _add_specialty_logger("bot.story", settings.LOG_STORY_FILE, fmt)
+    _add_specialty_logger("security", settings.LOG_SECURITY_FILE, fmt)
+
+
+def _add_specialty_logger(name: str, path, fmt) -> logging.Logger:
+    """创建写入专属文件的 logger，不传播到根 logger（避免重复输出）。"""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False  # 不传播到根 logger，避免重复写 app.log
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(fmt)
+    logger.addHandler(handler)
+    return logger
 
 
 def validate_settings() -> None:

@@ -22,4 +22,8 @@ logs/
 .ruff_cache/
 .idea/
 .vscode/
+secrets.json
+*.env.backup.*
+backups/
+web_audit.log
 

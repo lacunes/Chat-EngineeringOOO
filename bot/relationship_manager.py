@@ -13,7 +13,7 @@ import tempfile
 from config import prompts, settings
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("bot.relation")
 
 DIMENSION_LABELS: dict[str, str] = {
     "affection":   "好感",

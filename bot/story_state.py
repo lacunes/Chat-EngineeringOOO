@@ -9,7 +9,7 @@ import logging
 import tempfile
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("bot.story")
 
 DEFAULT_STORY_STATE = {
     "chapter": "",

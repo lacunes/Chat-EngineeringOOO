@@ -260,5 +260,13 @@ WEB_PASSWORD = os.getenv("WEB_PASSWORD", "").strip()
 # 文件路径配置
 # ═══════════════════════════════════════════════════════════════
 
-LOG_FILE = BASE_DIR / "bot.log"
+LOG_FILE = BASE_DIR / "logs" / "app.log"
 MEMORY_DIR = BASE_DIR / "memory"
+
+# 分层日志路径
+LOG_DIR = BASE_DIR / "logs"
+LOG_ERROR_FILE = LOG_DIR / "error.log"
+LOG_MEMORY_FILE = LOG_DIR / "memory.log"
+LOG_RELATION_FILE = LOG_DIR / "relation.log"
+LOG_STORY_FILE = LOG_DIR / "story.log"
+LOG_SECURITY_FILE = LOG_DIR / "security.log"

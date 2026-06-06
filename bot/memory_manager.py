@@ -10,7 +10,7 @@ from bot import utils
 from config import prompts, settings
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("bot.memory")
 
 _LONG_MEMORY_SIGNAL_KEYWORDS = {
     "答应", "保证", "约定", "发誓", "记住",
