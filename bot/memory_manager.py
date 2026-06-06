@@ -81,18 +81,34 @@ class MemoryManager:
             self.save_memory()
             self.save_long_memory()
 
-    def build_messages(self, system_prompt: str) -> list:
-        # 发给模型的顺序：
-        # 1. 当前世界 SYSTEM_PROMPT
-        # 2. 最近长期记忆
-        # 3. 最近短期对话
-        messages = [{"role": "system", "content": system_prompt}]
+    def build_messages(
+        self,
+        world_prompt: str,
+        long_term_context: str | None = None,
+        dynamic_state: str | None = None,
+    ) -> list:
+        """构建发送给模型的完整消息列表。
 
-        if self.long_memory:
-            recent = self.long_memory[-settings.LONG_MEMORY_CONTEXT_LIMIT:]
+        按「固定 → 半固定 → 动态 → 对话」的顺序排列，
+        最大化 DeepSeek prefix cache 命中率。
+
+        [msg 0] world_prompt       — 世界设定 + 时间指令（世界不变则永远不变）
+        [msg 1] long_term_context  — 长期记忆（偶尔变）
+        [msg 2] dynamic_state      — 当前状态块（每轮变）
+        [msg 3..] 最近短期对话      — 最易变
+        """
+        messages = [{"role": "system", "content": world_prompt}]
+
+        if long_term_context:
             messages.append({
                 "role": "system",
-                "content": "[长期记忆]\n" + "\n".join(recent),
+                "content": long_term_context,
+            })
+
+        if dynamic_state:
+            messages.append({
+                "role": "system",
+                "content": dynamic_state,
             })
 
         messages.extend(self.memory[-settings.CONTEXT_LENGTH:])

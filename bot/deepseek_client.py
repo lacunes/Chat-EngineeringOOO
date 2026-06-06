@@ -15,9 +15,10 @@ _usage_lock = threading.Lock()
 
 
 def _log_usage(purpose: str, success: bool, usage: dict | None = None, error: str = "") -> None:
-    """记录 API 用量到 logs/api_usage.jsonl。"""
+    """记录 API 用量到 logs/api_usage.jsonl，同时输出 cache 命中率到 logger。"""
     if not settings.API_USAGE_LOG_ENABLED:
         return
+
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "model": settings.MODEL_NAME,
@@ -28,6 +29,33 @@ def _log_usage(purpose: str, success: bool, usage: dict | None = None, error: st
         entry["prompt_tokens"] = usage.get("prompt_tokens", 0)
         entry["completion_tokens"] = usage.get("completion_tokens", 0)
         entry["total_tokens"] = usage.get("total_tokens", 0)
+
+        # ── DeepSeek prefix cache 统计 ──
+        cache_hit = usage.get("prompt_cache_hit_tokens", 0)
+        cache_miss = usage.get("prompt_cache_miss_tokens", 0)
+        entry["prompt_cache_hit_tokens"] = cache_hit
+        entry["prompt_cache_miss_tokens"] = cache_miss
+
+        total_cached = cache_hit + cache_miss
+        if total_cached > 0:
+            hit_rate = cache_hit / total_cached * 100
+            entry["cache_hit_rate_pct"] = round(hit_rate, 2)
+            logger.info(
+                "[DeepSeek Usage][%s] hit=%d miss=%d prompt=%d completion=%d total=%d hit_rate=%.2f%%",
+                purpose, cache_hit, cache_miss,
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0),
+                usage.get("total_tokens", 0),
+                hit_rate,
+            )
+        else:
+            logger.info(
+                "[DeepSeek Usage][%s] prompt=%d completion=%d total=%d cache=N/A",
+                purpose,
+                usage.get("prompt_tokens", 0),
+                usage.get("completion_tokens", 0),
+                usage.get("total_tokens", 0),
+            )
     if error:
         entry["error"] = error[:200]
     try:

@@ -275,43 +275,45 @@ class RoleplayBot:
                     self.time_manager.jump_to(advance["target"])
                 self.time_manager.mark_period_start(self.memory.message_count)
 
-        # 构建系统提示词：如果有NPC舞台指令，先注入处理指令再附舞台指令
-        system_prompt = self.world.SYSTEM_PROMPT
-        if stage_directions:
-            system_prompt = (
-                system_prompt
-                + "\n"
-                + prompts.NPC_STAGE_DIRECTION_INSTRUCTION
-                + "\n"
-                + stage_directions
-            )
+        # ── 构建 Prompt（固定→半固定→动态→对话，最大化 prefix cache 命中）──
 
-        # ── 注入关系网络指令 + 摘要 ──
+        # 1. 固定层：世界设定 + 时间指令（世界不变则永远不变，100% 缓存命中）
+        world_prompt = self.world.SYSTEM_PROMPT + "\n" + prompts.TIME_INJECT_INSTRUCTION
+
+        # 2. 半固定层：长期记忆（仅在精炼/新增/删除时变化，日常不变）
+        long_term_text = None
+        if self.memory.long_memory:
+            recent = self.memory.long_memory[-settings.LONG_MEMORY_CONTEXT_LIMIT:]
+            long_term_text = "[长期记忆]\n" + "\n".join(recent)
+
+        # 3. 动态层：当前状态（NPC 指令、关系、时间数据、导演指令）
+        dynamic_parts: list[str] = []
+        if stage_directions:
+            dynamic_parts.append(prompts.NPC_STAGE_DIRECTION_INSTRUCTION + "\n" + stage_directions)
+
         relation_summary = self.relationship_manager.get_summary()
         if relation_summary:
-            system_prompt = (
-                system_prompt
-                + "\n"
-                + prompts.RELATION_INJECT_INSTRUCTION
-                + relation_summary
-            )
+            dynamic_parts.append(prompts.RELATION_INJECT_INSTRUCTION + relation_summary)
 
-        # ── 注入时间背景 ──
         time_summary = self.time_manager.get_summary()
-        system_prompt = (
-            system_prompt + "\n" + prompts.TIME_INJECT_INSTRUCTION + time_summary
-        )
+        dynamic_parts.append(time_summary)
 
-        # ── 注入剧情节奏指令（runtime_directive.json）──
         directive = _load_runtime_directive()
         if directive.get("enabled"):
             directive_prompt = _build_directive_prompt(directive)
             if directive_prompt:
-                system_prompt = system_prompt + "\n" + directive_prompt
+                dynamic_parts.append(directive_prompt)
+
+        dynamic_state = "\n".join(dynamic_parts) if dynamic_parts else None
 
         # ── 主 API 调用（关键路径，不阻塞）──
+        messages = self.memory.build_messages(
+            world_prompt=world_prompt,
+            long_term_context=long_term_text,
+            dynamic_state=dynamic_state,
+        )
         reply, finish = await self.client.chat(
-            self.memory.build_messages(system_prompt),
+            messages,
             max_tokens=max_tokens,
             purpose="continue" if skip_time_advance else "main_chat",
         )
