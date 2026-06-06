@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -18,6 +19,38 @@ _LONG_MEMORY_SIGNAL_KEYWORDS = {
     "死了", "离开了", "结婚了", "找到了",
     "喜欢", "讨厌", "最怕", "最爱", "从不吃",
 }
+
+# ── 记忆分类辅助 ──
+
+_VALID_CATEGORIES = {
+    "hard_fact", "relationship", "plot_fact", "user_preference",
+    "temporary_state", "character_state", "world_state",
+    "legacy",  # 旧记忆兼容标签
+}
+
+_CATEGORY_LABEL = re.compile(r"^\[([a-z_]+)\]\s*")
+
+
+def _parse_category(text: str) -> tuple[str, str]:
+    """从记忆文本中解析分类标签，返回 (category, content_without_tag)。
+
+    无标签的旧记忆视为 'legacy'。
+    """
+    m = _CATEGORY_LABEL.match(text)
+    if m:
+        cat = m.group(1)
+        if cat in _VALID_CATEGORIES:
+            return cat, text[m.end():].strip()
+    return "legacy", text.strip()
+
+
+def _count_categories(items: list[str]) -> dict[str, int]:
+    """统计各分类的条目数。"""
+    counts: dict[str, int] = {}
+    for item in items:
+        cat, _ = _parse_category(item)
+        counts[cat] = counts.get(cat, 0) + 1
+    return counts
 
 
 def _should_extract_long_memory(text: str) -> bool:
@@ -69,6 +102,9 @@ class MemoryManager:
     def add_long_memory_item(self, text: str) -> None:
         clean = utils.normalize_text(text)
         if clean:
+            # 如果用户手动添加的记忆没有分类标签，默认为 user_preference
+            if not _CATEGORY_LABEL.match(clean):
+                clean = f"[user_preference] {clean}"
             with self._lock:
                 if clean not in self.long_memory:
                     self.long_memory.append(clean)
@@ -139,7 +175,7 @@ class MemoryManager:
             summary = dialogue_text[:2000]
 
         if summary:
-            self.add_long_memory_item(f"旧剧情摘要：{summary}")
+            self.add_long_memory_item(f"[plot_fact] 旧剧情摘要：{summary}")
             await self.refine_long_memory(client, force=False)
 
         with self._lock:
@@ -176,6 +212,20 @@ class MemoryManager:
                 purpose="memory_extract",
             )
             new_items = utils.parse_memory_json(extracted_text)
+            if new_items:
+                # 统计分类
+                cat_counts = _count_categories(new_items)
+                # 列出临时状态条目
+                temp_items = [it for it in new_items if it.startswith("[temporary_state]")]
+                logger.info(
+                    "Auto extracted %d long memory items: %s%s",
+                    len(new_items),
+                    ", ".join(f"{c}={n}" for c, n in sorted(cat_counts.items())),
+                    f" (temporary_state={len(temp_items)})" if temp_items else "",
+                )
+            else:
+                logger.info("Auto memory extract ran — no new items (all filtered or no signal)")
+
             for item in new_items:
                 self.add_long_memory_item(item)
             if new_items:
@@ -215,7 +265,12 @@ class MemoryManager:
             with self._lock:
                 if refined:
                     self.long_memory = refined[: settings.LONG_MEMORY_MAX_ITEMS]
-                    logger.info("Long memory refined to %s items", len(self.long_memory))
+                    cat_counts = _count_categories(self.long_memory)
+                    logger.info(
+                        "Long memory refined to %d items: %s",
+                        len(self.long_memory),
+                        ", ".join(f"{c}={n}" for c, n in sorted(cat_counts.items())),
+                    )
                 else:
                     logger.warning("Long memory refine returned empty output")
         except Exception as exc:
@@ -246,7 +301,12 @@ class MemoryManager:
             with path.open("r", encoding="utf-8") as file:
                 data = json.load(file)
             if isinstance(data, list):
-                logger.info("Loaded %s from %s", label, path)
+                cat_counts = _count_categories(data)
+                logger.info(
+                    "Loaded %s from %s (%d items: %s)",
+                    label, path, len(data),
+                    ", ".join(f"{c}={n}" for c, n in sorted(cat_counts.items())),
+                )
                 return data
             logger.warning("%s is not a list, using empty list", path)
         except Exception as exc:
