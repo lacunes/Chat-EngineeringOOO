@@ -296,13 +296,28 @@ def _parse_world_py(path: Path) -> dict[str, str]:
     tree = ast.parse(source)
     fields: dict[str, str] = {}
     for node in ast.iter_child_nodes(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
+        # 处理普通赋值: X = value
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if not isinstance(target, ast.Name):
+                    continue
+                name = target.id
+                if name.startswith("_"):
+                    continue
+                try:
+                    fields[name] = _ast_value_to_form(node.value)
+                except Exception:
+                    fields[name] = ast.get_source_segment(source, node.value) or ""
+        # 处理带类型标注的赋值: X: type = value
+        elif isinstance(node, ast.AnnAssign):
+            target = node.target
             if not isinstance(target, ast.Name):
                 continue
             name = target.id
             if name.startswith("_"):
+                continue
+            if node.value is None:
+                # 只有类型标注没有赋值（如 x: int），跳过
                 continue
             try:
                 fields[name] = _ast_value_to_form(node.value)
@@ -359,13 +374,19 @@ def _write_world_py(path: Path, fields: dict[str, str], new_values: dict[str, st
     tree = ast.parse(source)
     field_ranges: dict[str, tuple[int, int]] = {}
     for node in ast.iter_child_nodes(tree):
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
+        # 普通赋值: X = value
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and not target.id.startswith("_"):
+                    end = getattr(node, "end_lineno", node.lineno)
+                    field_ranges[target.id] = (node.lineno, end)
+                    break
+        # 带类型标注的赋值: X: type = value
+        elif isinstance(node, ast.AnnAssign):
+            target = node.target
             if isinstance(target, ast.Name) and not target.id.startswith("_"):
                 end = getattr(node, "end_lineno", node.lineno)
                 field_ranges[target.id] = (node.lineno, end)
-                break
 
     lines = source.splitlines()
     for name, (start, end) in sorted(field_ranges.items(), key=lambda x: -x[1][0]):
