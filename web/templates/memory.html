@@ -29,19 +29,19 @@
     {% for item in long_items %}
     <div class="memory-card" id="mem-card-{{ loop.index0 }}">
       <div class="mem-index">#{{ loop.index }}</div>
-      <div class="mem-text" id="mem-display-{{ loop.index0 }}">{{ item }}</div>
-      <div class="mem-editor" id="mem-editor-{{ loop.index0 }}" style="display:none;">
+      <div class="mem-text mem-display" id="mem-display-{{ loop.index0 }}">{{ item }}</div>
+      <div class="mem-editor hidden" id="mem-editor-{{ loop.index0 }}">
         <form method="post" action="{{ url_for('memory.edit_long_memory', index=loop.index0) }}" style="margin-top:8px;">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <textarea name="content" rows="3" id="mem-textarea-{{ loop.index0 }}"></textarea>
+          <textarea name="content" rows="3" class="mem-textarea" id="mem-textarea-{{ loop.index0 }}"></textarea>
           <div class="btn-group" style="margin-top:8px;">
             <button type="submit" class="btn btn-primary btn-sm">💾 保存</button>
-            <button type="button" class="btn btn-ghost btn-sm" onclick="cancelEdit({{ loop.index0 }})">取消</button>
+            <button type="button" class="btn btn-ghost btn-sm mem-cancel-btn">取消</button>
           </div>
         </form>
       </div>
       <div class="mem-actions">
-        <button type="button" class="btn btn-ghost btn-sm" onclick="startEdit({{ loop.index0 }})">✏️ 编辑</button>
+        <button type="button" class="btn btn-ghost btn-sm mem-edit-btn">✏️ 编辑</button>
         <form method="post" action="{{ url_for('memory.delete_long_memory', index=loop.index0) }}" style="display:inline">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-danger btn-sm" data-confirm="确认删除这条长期记忆？">删除</button>
@@ -76,24 +76,4 @@
     <div class="empty-state"><p>暂无短期记忆</p></div>
   {% endif %}
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-function startEdit(index) {
-  var display = document.getElementById('mem-display-' + index);
-  var editor = document.getElementById('mem-editor-' + index);
-  var textarea = document.getElementById('mem-textarea-' + index);
-  textarea.value = display.textContent.trim();
-  display.style.display = 'none';
-  editor.style.display = 'block';
-}
-
-function cancelEdit(index) {
-  var display = document.getElementById('mem-display-' + index);
-  var editor = document.getElementById('mem-editor-' + index);
-  display.style.display = '';
-  editor.style.display = 'none';
-}
-</script>
 {% endblock %}

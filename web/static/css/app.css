@@ -448,6 +448,12 @@ input[type="checkbox"] {
   line-height: 1.7;
 }
 
+.memory-card .mem-editor {
+  margin-top: 4px;
+}
+
+.hidden { display: none !important; }
+
 .memory-card .mem-actions {
   margin-top: 8px;
   text-align: right;

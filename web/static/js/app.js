@@ -135,6 +135,39 @@
     });
   }
 
+  // ── 记忆卡片编辑切换 ──
+  function bindMemoryEdit() {
+    document.querySelectorAll('.mem-edit-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var card = btn.closest('.memory-card');
+        if (!card) return;
+        var display = card.querySelector('.mem-display');
+        var editor = card.querySelector('.mem-editor');
+        var textarea = card.querySelector('.mem-textarea');
+        if (!display || !editor || !textarea) return;
+
+        textarea.value = (display.textContent || '').trim();
+        display.classList.add('hidden');
+        editor.classList.remove('hidden');
+      });
+    });
+
+    document.querySelectorAll('.mem-cancel-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        var card = btn.closest('.memory-card');
+        if (!card) return;
+        var display = card.querySelector('.mem-display');
+        var editor = card.querySelector('.mem-editor');
+        if (!display || !editor) return;
+
+        display.classList.remove('hidden');
+        editor.classList.add('hidden');
+      });
+    });
+  }
+
   // ── 页面加载完成后运行 ──
   document.addEventListener('DOMContentLoaded', function() {
     showFlash();
@@ -142,6 +175,7 @@
     injectCSRF();
     bindMobileMenu();
     bindModals();
+    bindMemoryEdit();
   });
 
 })();
