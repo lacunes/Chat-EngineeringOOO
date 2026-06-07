@@ -35,10 +35,11 @@ CONFIG_DEFS = [
         "key": "MODEL_NAME",
         "name": "使用模型",
         "type": "select",
-        "desc": "选择 DeepSeek 模型。deepseek-chat 适合角色扮演，deepseek-reasoner 适合复杂推理。",
+        "desc": "选择 DeepSeek 模型。deepseek-v4-flash 为当前推荐模型。旧名 deepseek-chat/reasoner 将逐步废弃。",
         "options": [
-            {"value": "deepseek-chat", "label": "deepseek-chat（推荐，通用模型）"},
-            {"value": "deepseek-reasoner", "label": "deepseek-reasoner（推理模型，较慢）"},
+            {"value": "deepseek-v4-flash", "label": "deepseek-v4-flash（推荐）"},
+            {"value": "deepseek-chat", "label": "deepseek-chat（旧名兼容）"},
+            {"value": "deepseek-reasoner", "label": "deepseek-reasoner（推理，旧名）"},
         ],
     },
     {
@@ -287,6 +288,7 @@ def _read_all_env_values() -> dict[str, str]:
     env_path = settings.BASE_DIR / ".env"
     result: dict[str, str] = {}
     if not env_path.exists():
+        logger.warning(".env not found at %s, cannot read config values", env_path)
         return result
 
     managed_keys = {cfg["key"] for cfg in CONFIG_DEFS}
@@ -301,6 +303,8 @@ def _read_all_env_values() -> dict[str, str]:
         value = value.strip().strip('"').strip("'")
         if key in managed_keys:
             result[key] = value
+
+    logger.debug("Read %d config values from %s", len(result), env_path)
     return result
 
 
@@ -374,3 +378,4 @@ def _update_env_multi(updates: dict[str, str]) -> None:
         content += "\n"
 
     env_path.write_text(content, encoding="utf-8")
+    logger.debug("Wrote %d config values to %s", len(updates), env_path)
