@@ -101,10 +101,15 @@ def run_audit():
         "timestamp": datetime.now().isoformat(),
         "total_items": len(items),
         "issue_count": len(issues),
-        "items": [{"index": i, "text": t} for i, t in enumerate(items)],
+        "items": [{"index": i, "text": str(t)} for i, t in enumerate(items)],
         "issues": issues,
     }
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logger.error("Failed to save audit report %s: %s", report_path.name, exc)
+        return _flash_redirect(url_for("memory_audit.index"),
+                               f"无法保存报告: {exc}", "error")
 
     audit_log("运行记忆污染检查", f"报告: {report_path.name}, 问题: {len(issues)}")
     msg = f"检查完成，发现 {len(issues)} 个问题"
@@ -123,7 +128,16 @@ def view_report(filename: str):
         return _flash_redirect(url_for("memory_audit.index"),
                                "报告不存在", "error")
 
-    report = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Failed to read audit report %s: %s", filename, exc)
+        return _flash_redirect(url_for("memory_audit.index"),
+                               f"无法读取报告: {exc}", "error")
+
+    # 规范化报告结构，避免模板因字段缺失崩溃
+    report = _normalize_report(raw)
+
     return render_template("memory_audit_report.html",
                            filename=filename,
                            report=report,
@@ -143,7 +157,14 @@ def apply_action(filename: str):
         return _flash_redirect(url_for("memory_audit.index"),
                                "报告不存在", "error")
 
-    report = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error("Failed to read audit report %s: %s", filename, exc)
+        return _flash_redirect(url_for("memory_audit.index"),
+                               f"无法读取报告: {exc}", "error")
+
+    report = _normalize_report(raw)
     issues = report.get("issues", [])
 
     try:
@@ -398,6 +419,17 @@ def _parse_audit_json(text: str) -> list[dict]:
 
     logger.warning("Failed to parse audit JSON: %s", text[:200])
     return []
+
+
+def _normalize_report(raw: dict) -> dict:
+    """安全规范化报告结构，确保模板不因字段缺失崩溃。"""
+    return {
+        "timestamp": raw.get("timestamp", "未知时间"),
+        "total_items": raw.get("total_items", 0),
+        "issue_count": raw.get("issue_count", 0),
+        "items": raw.get("items", []),
+        "issues": raw.get("issues", []),
+    }
 
 
 def _list_reports() -> list[dict]:

@@ -2,7 +2,7 @@
 {% block title %}检查报告{% endblock %}
 {% block content %}
 <h1 class="page-title">📋 记忆污染检查报告</h1>
-<p class="page-subtitle">{{ report.timestamp[:19] }} · {{ report.total_items }} 条记忆 · {{ report.issue_count }} 个问题</p>
+<p class="page-subtitle">{{ report.timestamp[:19] if report.timestamp is string else report.timestamp|string|truncate(19, false, '') }} · {{ report.total_items }} 条记忆 · {{ report.issue_count }} 个问题</p>
 
 {% set issue_types = {
     'duplicate': '重复',
