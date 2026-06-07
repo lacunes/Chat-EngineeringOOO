@@ -5,11 +5,12 @@
 <p class="page-subtitle">管理所有世界文件</p>
 <div class="card">
   <table class="data-table">
-    <thead><tr><th>世界名</th><th>文件路径</th><th>大小</th><th>操作</th></tr></thead>
+    <thead><tr><th>世界名</th><th>数据源</th><th>文件路径</th><th>大小</th><th>操作</th></tr></thead>
     <tbody>
     {% for w in worlds %}
     <tr>
       <td>{{ w.name }}{% if w.is_active %} <span class="badge badge-green">当前</span>{% endif %}</td>
+      <td><span class="badge {% if w.source == 'json' %}badge-green{% else %}badge-warning{% endif %}">{{ w.source | upper }}</span></td>
       <td class="text-muted">{{ w.path }}</td>
       <td class="text-muted">{{ "%.1f"|format(w.size_kb) }} KB</td>
       <td>
@@ -37,7 +38,7 @@
   <form method="post" action="{{ url_for('worlds.create_world') }}" class="btn-group">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="text" name="world_name" placeholder="新世界名（英文）" style="width:200px;" required>
-    <button type="submit" class="btn btn-success">✨ 基于 one.py 创建</button>
+    <button type="submit" class="btn btn-success">✨ 创建新世界</button>
   </form>
 </div>
 {% endblock %}

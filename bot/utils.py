@@ -1,17 +1,33 @@
 import importlib
 import json
 import random
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 from config import settings
 
 
-def load_world(name: str) -> ModuleType:
-    # 动态加载世界文件：ACTIVE_WORLD=one -> import worlds.one。
-    # 这样新增世界时不需要改 main.py。
+def load_world(name: str):
+    """加载世界数据。
+
+    优先从 data/worlds/<name>.json 加载（结构化数据），
+    如果 JSON 文件不存在则回退到旧 worlds/<name>.py 导入。
+    """
     safe_name = name.strip().lower()
     if not safe_name.isidentifier():
         raise ValueError(f"Invalid ACTIVE_WORLD: {name}")
+
+    json_path = settings.BASE_DIR / "data" / "worlds" / f"{safe_name}.json"
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            return SimpleNamespace(**data)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to load world JSON %s, falling back to .py: %s", json_path, exc
+            )
+
+    # 旧 worlds/<name>.py 兜底
     return importlib.import_module(f"worlds.{safe_name}")
 
 
