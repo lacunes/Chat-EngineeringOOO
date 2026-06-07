@@ -1,7 +1,8 @@
-import importlib
 import json
 import random
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
+
+import yaml
 
 from config import settings
 
@@ -9,14 +10,29 @@ from config import settings
 def load_world(name: str):
     """加载世界数据。
 
-    优先从 data/worlds/<name>.json 加载（结构化数据），
-    如果 JSON 文件不存在则回退到旧 worlds/<name>.py 导入。
+    优先级：data/worlds/<name>.yaml → data/worlds/<name>.json → 报错。
+    不再支持 worlds/<name>.py 旧格式。
     """
     safe_name = name.strip().lower()
     if not safe_name.isidentifier():
         raise ValueError(f"Invalid ACTIVE_WORLD: {name}")
 
-    json_path = settings.BASE_DIR / "data" / "worlds" / f"{safe_name}.json"
+    data_dir = settings.BASE_DIR / "data" / "worlds"
+
+    # 1. YAML 优先
+    yaml_path = data_dir / f"{safe_name}.yaml"
+    if yaml_path.exists():
+        try:
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            return SimpleNamespace(**data)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Failed to load world YAML %s, trying JSON: %s", yaml_path, exc
+            )
+
+    # 2. JSON 兜底（过渡期兼容）
+    json_path = data_dir / f"{safe_name}.json"
     if json_path.exists():
         try:
             data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -24,11 +40,12 @@ def load_world(name: str):
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning(
-                "Failed to load world JSON %s, falling back to .py: %s", json_path, exc
+                "Failed to load world JSON %s: %s", json_path, exc
             )
 
-    # 旧 worlds/<name>.py 兜底
-    return importlib.import_module(f"worlds.{safe_name}")
+    raise FileNotFoundError(
+        f"世界 '{safe_name}' 不存在（找不到 {yaml_path} 或 {json_path}）"
+    )
 
 
 def format_dialogue(messages: list, limit: int = 6000) -> str:
