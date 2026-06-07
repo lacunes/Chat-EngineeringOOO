@@ -295,16 +295,22 @@ class RelationshipManager:
         trigger_reason = "interval_reached"
 
         # 本地关键词预检（零 API 开销）
+        # 特殊情况：角色数不足 2 时跳过信号检查，允许系统通过 AI 提取来发现角色（引导启动）
         if settings.RELATION_EXTRACT_REQUIRE_SIGNAL:
-            if not _should_extract_relations(recent, self.characters):
-                logger.debug(
-                    "Relation extract skipped: no signal (%d replies since last, %d chars, %d relations)",
-                    self._reply_count_since_extract, len(self.characters), len(self.relations),
-                )
-                self._reply_count_since_extract = 0
-                self.save()
-                return
-            trigger_reason = "signal_detected"
+            if len(self.characters) >= 2:
+                if not _should_extract_relations(recent, self.characters):
+                    logger.debug(
+                        "Relation extract skipped: no signal (%d replies since last, %d chars, %d relations)",
+                        self._reply_count_since_extract, len(self.characters), len(self.relations),
+                    )
+                    self._reply_count_since_extract = 0
+                    self.save()
+                    return
+                trigger_reason = "signal_detected"
+            else:
+                # 角色数不足，跳过信号检查以引导启动
+                trigger_reason = "bootstrap"
+                logger.info("Relation extract: bootstrap mode (only %d chars known)", len(self.characters))
 
         dialogue = _format_dialogue_for_extraction(recent)
 

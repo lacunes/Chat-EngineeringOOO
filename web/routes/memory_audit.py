@@ -70,18 +70,28 @@ def run_audit():
 
     mode = request.form.get("mode", "both")  # rules / ai / both
     issues: list[dict] = []
+    error_detail = ""
 
-    # ── 第一层：规则检查 ──
-    if mode in ("rules", "both"):
-        rule_issues = _rule_check(items)
-        issues.extend(rule_issues)
-        logger.info("Memory audit: rule check found %d issues", len(rule_issues))
+    try:
+        # ── 第一层：规则检查 ──
+        if mode in ("rules", "both"):
+            rule_issues = _rule_check(items)
+            issues.extend(rule_issues)
+            logger.info("Memory audit: rule check found %d issues", len(rule_issues))
 
-    # ── 第二层：AI 检查 ──
-    if mode in ("ai", "both"):
-        ai_issues = _run_ai_check(items, ctx)
-        issues.extend(ai_issues)
-        logger.info("Memory audit: AI check found %d issues", len(ai_issues))
+        # ── 第二层：AI 检查 ──
+        if mode in ("ai", "both"):
+            try:
+                ai_issues = _run_ai_check(items, ctx)
+                issues.extend(ai_issues)
+                logger.info("Memory audit: AI check found %d issues", len(ai_issues))
+            except Exception as exc:
+                logger.error("Memory audit AI check failed: %s", exc)
+                error_detail = f"（AI 检查失败: {exc}，仅显示规则检查结果）"
+    except Exception as exc:
+        logger.error("Memory audit rule check failed: %s", exc)
+        return _flash_redirect(url_for("memory_audit.index"),
+                               f"规则检查出错: {exc}", "error")
 
     # ── 保存报告 ──
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -97,8 +107,10 @@ def run_audit():
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     audit_log("运行记忆污染检查", f"报告: {report_path.name}, 问题: {len(issues)}")
-    return _flash_redirect(url_for("memory_audit.view_report", filename=report_path.name),
-                           f"检查完成，发现 {len(issues)} 个问题")
+    msg = f"检查完成，发现 {len(issues)} 个问题"
+    if error_detail:
+        msg += error_detail
+    return _flash_redirect(url_for("memory_audit.view_report", filename=report_path.name), msg)
 
 
 @audit_bp.route("/report/<filename>")
