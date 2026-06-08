@@ -1,0 +1,59 @@
+# ──────────────────────────────────────────────
+# 多模型供应商配置 (providers.yaml)
+# ──────────────────────────────────────────────
+# API Key 不写在这里，请配置在 .env 中。
+# 修改此文件后无需重启 main.py，下一次请求自动生效。
+#
+# 任务类型说明:
+#   chat       - 主聊天
+#   memory     - 记忆总结/压缩/精炼
+#   relation   - 关系抽取
+#   summary    - 每日摘要/上下文压缩
+#   background - 所有后台任务（兜底）
+# ──────────────────────────────────────────────
+
+providers:
+  - name: zhipu_glm_air
+    enabled: true
+    priority: 1
+    task_types: ["chat", "memory", "summary", "relation", "background"]
+    api_key_env: "ZHIPU_API_KEY"
+    base_url: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    model: "glm-4.5-air"
+    timeout_chat_seconds: 60
+    timeout_background_seconds: 30
+    max_retries: 1
+    cooldown_seconds: 300
+    max_consecutive_failures: 3
+    disable_on_quota_exhausted: true
+    thinking_enabled: false
+
+  - name: openrouter_qwen_235b
+    enabled: false
+    priority: 2
+    task_types: ["chat"]
+    api_key_env: "OPENROUTER_API_KEY"
+    base_url: "https://openrouter.ai/api/v1/chat/completions"
+    model: "qwen/qwen3-235b-a22b-2507"
+    timeout_chat_seconds: 60
+    timeout_background_seconds: 30
+    max_retries: 1
+    cooldown_seconds: 300
+    max_consecutive_failures: 3
+    disable_on_quota_exhausted: true
+    thinking_enabled: false
+
+  - name: deepseek_v4_flash
+    enabled: true
+    priority: 3
+    task_types: ["chat", "memory", "summary", "relation", "background"]
+    api_key_env: "DEEPSEEK_API_KEY"
+    base_url: "https://api.deepseek.com/chat/completions"
+    model: "deepseek-v4-flash"
+    timeout_chat_seconds: 60
+    timeout_background_seconds: 30
+    max_retries: 1
+    cooldown_seconds: 300
+    max_consecutive_failures: 3
+    disable_on_quota_exhausted: true
+    thinking_enabled: false

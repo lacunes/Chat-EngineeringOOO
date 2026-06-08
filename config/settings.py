@@ -277,3 +277,22 @@ LOG_MEMORY_FILE = LOG_DIR / "memory.log"
 LOG_RELATION_FILE = LOG_DIR / "relation.log"
 LOG_STORY_FILE = LOG_DIR / "story.log"
 LOG_SECURITY_FILE = LOG_DIR / "security.log"
+
+# ═══════════════════════════════════════════════════════════════
+# 多模型供应商配置（LLM Router）
+# ═══════════════════════════════════════════════════════════════
+
+# providers.yaml 路径（非敏感 provider 配置）
+PROVIDERS_YAML_PATH = BASE_DIR / "providers.yaml"
+
+# provider_state.json 路径（运行时状态持久化）
+PROVIDER_STATE_PATH = BASE_DIR / "data" / "provider_state.json"
+
+# 新增 API Key 环境变量（从 .env 读取，不在 providers.yaml 中）
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "").strip()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+
+# 兼容旧变量：DEEPSEEK_KEY → DEEPSEEK_API_KEY（如果新变量未设置则回退到旧变量）
+if not DEEPSEEK_API_KEY and DEEPSEEK_KEY:
+    DEEPSEEK_API_KEY = DEEPSEEK_KEY
