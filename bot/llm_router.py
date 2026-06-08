@@ -25,6 +25,10 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# ── 抑制 httpx/httpcore 日志，防止泄露 Telegram Bot Token ──
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # ── 文件路径（延迟计算，避免导入时 BASE_DIR 未初始化）──
 
 def _providers_yaml_path() -> Path:
@@ -40,7 +44,7 @@ def _llm_usage_log_path() -> Path:
     return settings.BASE_DIR / "logs" / "llm_usage.jsonl"
 
 # ── 线程锁 ──
-_state_lock = threading.Lock()
+_state_lock = threading.RLock()
 _usage_lock = threading.Lock()
 
 
@@ -550,6 +554,8 @@ class LLMRouter:
         if max_tokens is None:
             max_tokens = get_reply_length()
 
+        logger.info("[LLMRouter] 收到请求 purpose=%s max_tokens=%s", purpose, max_tokens)
+
         # 检查配置文件是否更新
         self._check_reload()
 
@@ -566,6 +572,8 @@ class LLMRouter:
         candidates = self._select_candidates(task_type)
         if not candidates:
             raise RuntimeError("没有可用的模型供应商，请检查 providers.yaml 和 API Key 配置。")
+
+        logger.info("[LLMRouter] 候选 providers: %s (task_type=%s)", candidates, task_type)
 
         # 逐个尝试
         for idx, p_name in enumerate(candidates):
@@ -626,6 +634,10 @@ class LLMRouter:
             for retry in range(max_retries + 1):
                 total_retries = retry
                 try:
+                    logger.info(
+                        "[LLMRouter] API 请求开始 provider=%s model=%s retry=%s/%s",
+                        p_name, provider_config.get("model", ""), retry, max_retries,
+                    )
                     attempt_reply, attempt_finish, usage = await self._call_provider(
                         provider_config=provider_config,
                         api_key=api_key,
@@ -634,6 +646,7 @@ class LLMRouter:
                         temperature=temperature,
                         timeout=timeout,
                     )
+                    logger.info("[LLMRouter] API 请求结束 provider=%s success=True", p_name)
                     success = True
                     break
                 except Exception as exc:
@@ -667,7 +680,9 @@ class LLMRouter:
 
             if success:
                 # 成功！记录用量、清零失败计数
+                logger.info("[LLMRouter] 开始记录 provider state: %s (success)", p_name)
                 self._record_success(p_name)
+                logger.info("[LLMRouter] state 保存完成: %s", p_name)
                 _log_llm_usage({
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "task_type": task_type,
@@ -685,10 +700,14 @@ class LLMRouter:
                     "retry_count": total_retries,
                 })
                 logger.info("LLM call succeeded via %s (%s)", p_name, purpose)
+                logger.info("[LLMRouter] 准备返回 reply provider=%s latency=%sms",
+                           p_name, round((time.time() - start_time) * 1000))
                 return attempt_reply, attempt_finish
 
             # 失败：记录状态
+            logger.info("[LLMRouter] 开始记录 provider state: %s (failure type=%s)", p_name, error_type)
             is_exhausted = self._record_failure(p_name, error_type, error_message)
+            logger.info("[LLMRouter] state 保存完成: %s exhausted=%s", p_name, is_exhausted)
             if is_exhausted and not provider_state.get("exhausted"):
                 self._mark_exhausted(p_name)
 
