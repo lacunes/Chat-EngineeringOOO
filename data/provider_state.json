@@ -1,7 +1,29 @@
 {
   "mode": "auto",
   "manual_provider": null,
-  "providers": {},
+  "providers": {
+    "openrouter_qwen_235b": {
+      "consecutive_failures": 0,
+      "cooldown_until": null,
+      "exhausted": false,
+      "last_failure_reason": null,
+      "last_failure_time": null
+    },
+    "deepseek_v4_flash": {
+      "consecutive_failures": 0,
+      "cooldown_until": null,
+      "exhausted": false,
+      "last_failure_reason": null,
+      "last_failure_time": null
+    },
+    "zhipu_glm_air": {
+      "consecutive_failures": 0,
+      "cooldown_until": null,
+      "exhausted": false,
+      "last_failure_reason": null,
+      "last_failure_time": null
+    }
+  },
   "last_fallback_time": null,
   "last_fallback_reason": null
 }
