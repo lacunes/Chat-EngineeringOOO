@@ -70,14 +70,40 @@ def clear_failed_attempts(ip: str) -> None:
 class AppContext:
     """Flask 与 Bot 共享的状态容器。"""
 
-    def __init__(self, world, memory, client, npc_manager, relationship_manager, time_manager, start_time: float):
-        self.world = world
-        self.memory = memory
+    def __init__(self, world_manager, roleplay_bot, client, start_time: float):
+        self._world_manager = world_manager
+        self._roleplay_bot = roleplay_bot
         self.client = client
-        self.npc_manager = npc_manager
-        self.relationship_manager = relationship_manager
-        self.time_manager = time_manager
         self.start_time = start_time
+
+    @property
+    def world(self):
+        """当前激活的世界（从 WorldManager 动态获取）。"""
+        return self._world_manager.get_world()
+
+    @property
+    def world_manager(self):
+        return self._world_manager
+
+    @property
+    def memory(self):
+        return self._roleplay_bot.memory
+
+    @property
+    def npc_manager(self):
+        return self._roleplay_bot.npc_manager
+
+    @property
+    def relationship_manager(self):
+        return self._roleplay_bot.relationship_manager
+
+    @property
+    def time_manager(self):
+        return self._roleplay_bot.time_manager
+    
+    @property
+    def roleplay_bot(self):
+        return self._roleplay_bot
 
 
 def _ctx():
@@ -148,10 +174,16 @@ def create_app(ctx: AppContext) -> Flask:
         return None
 
     # ── 注册蓝图 ──
-    from web.routes import (
-        auth_bp, dashboard_bp, config_bp, worlds_bp,
-        memory_bp, audit_bp, relations_bp, time_bp, logs_bp,
-    )
+    from web.routes.auth import auth_bp
+    from web.routes.dashboard import dashboard_bp
+    from web.routes.config_center import config_bp
+    from web.routes.worlds import worlds_bp
+    from web.routes.memory import memory_bp
+    from web.routes.memory_audit import audit_bp
+    from web.routes.relations import relations_bp
+    from web.routes.time_routes import time_bp
+    from web.routes.logs import logs_bp
+    from web.routes.providers import providers_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(config_bp)
@@ -161,6 +193,7 @@ def create_app(ctx: AppContext) -> Flask:
     app.register_blueprint(relations_bp)
     app.register_blueprint(time_bp)
     app.register_blueprint(logs_bp)
+    app.register_blueprint(providers_bp)
 
     # ── CSRF Token 注入模板全局变量 ──
     @app.context_processor

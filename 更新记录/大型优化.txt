@@ -1,0 +1,303 @@
+请你先完整阅读当前项目，不要立刻写代码。重点阅读：
+
+1. bot/telegram_handlers.py
+2. bot/deepseek_client.py
+3. bot/memory_manager.py
+4. bot/relationship_manager.py
+5. bot/time_manager.py
+6. config/settings.py
+7. config/prompts.py
+8. main.py
+9. README.md
+
+我现在不准备更换模型。聊天和后台维护都继续使用当前模型。
+
+我的目标不是切换更便宜模型，而是优化 API 调度，减少不必要的 API 调用，从而节省开销，同时不要明显降低主聊天体验。
+
+请先只输出方案，不要写代码。
+
+请重点检查以下方向：
+
+一、梳理当前所有 API 调用点
+
+请先分析当前项目里哪些地方会调用 DeepSeek API，包括但不限于：
+
+1. 主聊天回复
+2. /c 续写
+3. 长期记忆抽取
+4. 长期记忆精炼
+5. 旧短期记忆压缩
+6. 关系网络抽取
+7. 时间系统的每日摘要
+8. NPC 主动行为
+9. 其他隐藏调用点
+
+请输出一张调用表：
+
+- 调用位置
+- 触发条件
+- 是否每轮触发
+- 是否可以降频
+- 是否可以合并
+- 是否可以跳过
+- 风险等级
+
+二、/c 续写不要触发后台维护
+
+请检查 /c 或 continue_story 的实现。
+
+我的需求是：
+
+/c 只是让 AI 延续当前回复，不应该被当成一次完整的新对话轮次处理。
+
+因此 /c 不应该触发：
+
+1. 长期记忆抽取
+2. 长期记忆精炼
+3. 关系网络抽取
+4. 关系抽取计数递增
+5. 时间推进
+6. 后台维护任务
+
+请设计：
+
+1. 给 generate_reply 增加参数：
+   skip_background_maintenance: bool = False
+
+2. 普通聊天：
+   skip_background_maintenance=False
+
+3. /c 续写：
+   skip_background_maintenance=True
+
+4. skip_background_maintenance=True 时：
+   - 仍然保存必要的短期上下文
+   - 仍然正常回复用户
+   - 不触发维护类 API 调用
+   - 不影响后续正常聊天
+
+三、关系网络抽取前增加本地必要性判断
+
+关系网络抽取是后台维护功能，不需要每次都调用 API。
+
+请在调用关系抽取 API 前，增加一个保守的本地判断函数，例如：
+
+should_extract_relationships(recent_messages, characters)
+
+判断条件可以包括：
+
+1. 最近对话里是否出现两个及以上角色名
+2. 是否出现关系变化相关关键词，例如：
+   信任、怀疑、喜欢、讨厌、害怕、依赖、承诺、背叛、保护、生气、道歉、亲近、疏远、试探、安慰、嫉妒、吃醋、照顾、冷淡、和好
+3. 是否出现明显情绪冲突或亲密互动
+4. 是否出现新的承诺、关系确认、关系破裂、关系缓和
+
+如果没有明显信号，就跳过关系抽取 API。
+
+要求：
+
+1. 判断要保守。
+2. 宁可漏掉轻微变化，也不要频繁调用 API。
+3. 本地判断只决定是否调用 API，不直接修改关系数值。
+4. 增加配置项：
+   RELATION_EXTRACT_REQUIRE_SIGNAL = True
+
+四、长期记忆抽取前增加本地必要性判断
+
+长期记忆也不需要每轮都抽取。
+
+请在调用长期记忆抽取 API 前，增加一个本地判断函数，例如：
+
+should_extract_long_memory(recent_messages)
+
+只有出现较明确的长期信息时才调用 API，例如：
+
+1. 新的人物关系
+2. 新承诺
+3. 新习惯
+4. 明确偏好
+5. 重要事件
+6. 角色阶段变化
+7. 生活状态变化
+8. 用户明确设定
+9. 持续多轮出现的稳定事实
+
+如果只是普通闲聊、重复情绪、同一场景内的细节补充，则可以跳过。
+
+要求：
+
+1. 增加配置：
+   LONG_MEMORY_EXTRACT_REQUIRE_SIGNAL = True
+
+2. 保持原有间隔阈值。
+   也就是说，必须同时满足：
+   - 达到抽取间隔
+   - 本地判断存在抽取价值
+
+3. 本地判断失败时只跳过 API，不影响聊天。
+
+五、合并长期记忆抽取和关系网络抽取
+
+当前长期记忆抽取和关系网络抽取都在分析最近对话，可能分别调用 API。
+
+请设计一个“综合后台维护分析”方案，用一次 API 同时返回：
+
+{
+  "long_memory": [
+    {
+      "type": "relationship",
+      "content": "..."
+    }
+  ],
+  "relation_changes": [
+    {
+      "from": "角色A",
+      "to": "角色B",
+      "changes": {
+        "trust": 1,
+        "affection": 1
+      },
+      "note": "变化原因"
+    }
+  ]
+}
+
+要求：
+
+1. 先只设计方案，不要直接大改。
+2. 保留原有长期记忆抽取和关系抽取函数作为 fallback。
+3. 综合分析 JSON 解析失败时，不影响主聊天。
+4. 综合分析成功时，同时更新长期记忆和关系网络。
+5. 新增 prompt：
+   COMBINED_MAINTENANCE_PROMPT
+
+六、压缩旧记忆后不要强制触发长期记忆精炼
+
+请检查 MemoryManager.compress_old_memory()。
+
+如果压缩旧短期记忆已经调用一次 API 生成摘要，之后又强制调用 refine_long_memory，可能导致一次维护产生两次 API 调用。
+
+请优化为：
+
+1. 压缩旧短期记忆后，只添加“旧剧情摘要”到长期记忆。
+2. 不要默认 force refine。
+3. 只有长期记忆数量明显超过上限时，才触发精炼。
+4. 增加配置：
+   LONG_MEMORY_REFINE_BUFFER = 20
+5. 只有当长期记忆数量超过 LONG_MEMORY_MAX_ITEMS + LONG_MEMORY_REFINE_BUFFER 时才精炼。
+
+七、后台维护任务增加冷却和互斥
+
+请检查 _schedule_background_maintenance。
+
+我希望避免后台维护任务叠加、重复启动、连续触发。
+
+请优化为：
+
+1. 同一时间最多运行一个后台维护任务。
+2. 如果上一个维护任务还没完成，新的维护任务直接跳过。
+3. 增加维护冷却时间，例如：
+   BACKGROUND_MAINTENANCE_COOLDOWN_SECONDS = 60
+4. 维护任务内部按优先级执行：
+   - 先判断是否需要压缩
+   - 再判断是否需要综合维护
+   - 最后判断是否需要精炼
+5. 每个子任务都要先做本地必要性判断，再决定是否调用 API。
+
+八、增加 API usage 统计
+
+请给 DeepSeekClient.chat() 增加 purpose 参数：
+
+chat(messages, max_tokens=None, temperature=0.85, purpose="main_chat")
+
+不同调用传入不同 purpose，例如：
+
+- main_chat
+- continue
+- memory_extract
+- memory_refine
+- memory_compress
+- relation_extract
+- combined_maintenance
+- day_summary
+- npc_action
+
+如果 DeepSeek 响应里有 usage 字段，请记录：
+
+- timestamp
+- model
+- purpose
+- prompt_tokens
+- completion_tokens
+- total_tokens
+- cached_tokens，如果有
+- success
+- error，如果失败
+
+写入：
+
+logs/api_usage.jsonl
+
+要求：
+
+1. usage 字段不存在时也记录调用事件。
+2. 记录失败不能影响主聊天。
+3. 不要记录 API key。
+4. 不要记录完整用户隐私内容，只记录 token 和用途。
+5. 后续 Web 面板可以再做统计页面，本批不强制。
+
+九、配置项建议
+
+请检查 config/settings.py，建议增加或确认：
+
+RELATION_EXTRACT_REQUIRE_SIGNAL = True
+LONG_MEMORY_EXTRACT_REQUIRE_SIGNAL = True
+BACKGROUND_MAINTENANCE_COOLDOWN_SECONDS = 60
+LONG_MEMORY_REFINE_BUFFER = 20
+API_USAGE_LOG_ENABLED = True
+COMBINED_MAINTENANCE_ENABLED = False
+
+注意：
+综合维护先默认 False，等基础优化稳定后再打开。
+
+十、不要切换模型
+
+请注意：
+
+1. 不要新增维护模型。
+2. 不要把后台任务切到其他模型。
+3. 不要修改现有模型选择逻辑。
+4. 本次优化只减少调用次数，不改变模型。
+
+十一、不要频繁的提示我“当前阶段对话轮次过多”，大约5轮提示一次即可
+
+十二、不要破坏现有功能
+
+请特别注意不要破坏：
+
+1. 普通 Telegram 聊天
+2. /c 续写
+3. 长期记忆
+4. 关系网络
+5. 时间系统
+6. /time、/next_time、/next_day
+7. Web 面板
+8. VPS 部署
+9. 现有 memory JSON 文件兼容性
+
+
+请先输出优化方案，包括：
+
+1. 当前 API 调用链路分析
+2. 哪些调用无法减少
+3. 哪些调用可以跳过
+4. 哪些调用可以合并
+5. 哪些地方会重复触发后台维护
+6. 需要修改哪些文件
+7. 每个文件准备怎么改
+8. 新增配置项说明
+9. 新增函数设计
+10. 风险点
+11. 最小可用实现顺序
+
+注意：先只做方案，不要直接写代码。

@@ -40,7 +40,7 @@ class NPCManager:
     def __init__(self, world, memory):
         """
         Args:
-            world: 世界模块（来自 worlds/*.py），应包含可选的 NPCS 字典
+            world: 世界模块（来自 data/worlds/*.yaml），应包含可选的 NPCS 字典
             memory: MemoryManager 实例，用于读取当前剧情上下文
         """
         self.world = world

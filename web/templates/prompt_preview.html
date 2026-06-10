@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Prompt 预览{% endblock %}
+{% block content %}
+
+<h1>📝 当前实际 Prompt 预览</h1>
+<p style="color:#9ca3af;">世界：<strong>{{ world_name }}</strong> | 此预览展示下一次聊天会注入的内容</p>
+
+{% for section in sections %}
+<div class="card" style="margin-top:16px;">
+  <div class="card-title">{{ section.title }}</div>
+  <div class="card-body">
+    <pre style="white-space:pre-wrap;word-break:break-word;font-size:0.85rem;max-height:400px;overflow-y:auto;background:var(--bg);padding:12px;border-radius:6px;">{{ section.content }}</pre>
+  </div>
+</div>
+{% endfor %}
+
+<div style="margin-top:16px;">
+  <a href="{{ url_for('providers.index') }}" class="btn btn-secondary">← 返回模型管理</a>
+</div>
+
+{% endblock %}

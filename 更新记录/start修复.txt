@@ -1,0 +1,64 @@
+请检查 /start 命令的上下文写入问题，只做最小修复。
+
+我发现当前 /start 会回复 self.world.START_SCENE，但这条固定开场似乎没有写入短期上下文，导致用户后续正式聊天时，AI 不知道自己刚刚已经发送过开场。
+
+请重点查看：
+- bot/telegram_handlers.py
+- bot/memory_manager.py
+
+目标：
+1. /start 回复的 START_SCENE 应该作为 assistant 消息写入短期记忆。
+2. 写入后应保存 memory。
+3. 不要把用户发送的 "/start" 当作普通 user 消息写入上下文。
+4. 不要调用 DeepSeek API。
+5. 不要触发长期记忆提取。
+6. 不要触发关系分析。
+7. 不要触发剧情状态分析。
+8. 不要触发 NPC 主动行为。
+9. 不要改变 START_SCENE 文本。
+10. 不要大规模重构。
+
+推荐修改方式：
+
+在 cmd_start 中：
+
+scene = self.world.START_SCENE
+await update.message.reply_text(scene)
+self.memory.add_assistant_message(scene)
+self.memory.save_memory()
+
+但要注意避免重复写入：
+如果用户连续多次发送 /start，不要无限重复把同一段 START_SCENE 塞进短期上下文。
+
+可以采用以下任一低风险方案：
+
+方案 A：
+如果当前短期记忆为空，才写入 START_SCENE。
+
+方案 B：
+如果最近一条 assistant 消息不是 START_SCENE，才写入 START_SCENE。
+
+我更倾向方案 B，因为用户可能 reset 后重新 /start，也可能切世界后重新 /start。
+
+请检查 MemoryManager 是否已有方法可以读取最近一条消息。
+如果没有，不要大改，可以增加一个简单辅助方法，例如：
+
+def last_assistant_message_is(self, text: str) -> bool:
+    ...
+
+或者直接在 cmd_start 中做最小判断。
+
+修改完成后请确认：
+1. /start 的回复会进入短期上下文。
+2. /start 不会触发 API 调用。
+3. /start 不会触发后台维护任务。
+4. 连续多次 /start 不会重复污染上下文。
+5. 不影响普通聊天 handle_chat / generate_reply 流程。
+6. 不影响 /reset、/status、/memo 等命令。
+7. 运行 Python 语法检查。
+
+最后请输出：
+- 修改了哪些文件
+- 具体如何避免重复写入 START_SCENE
+- 是否增加 API 调用
+- 是否影响长期记忆、关系、剧情状态、NPC

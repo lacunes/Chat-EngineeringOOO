@@ -166,6 +166,11 @@ def save_world(name: str):
 
     audit_log("编辑世界", f"表单模式保存 {name}.yaml")
     logger.info("Web panel: saved world YAML %s", name)
+
+    # 如果保存的是当前激活的世界，触发热重载
+    ctx = _ctx()
+    if name == ctx.world_manager.world_name:
+        ctx.world_manager.reload_world()
     return _flash_redirect(url_for("worlds.edit_world", name=name),
                            f"{name}.yaml 已保存")
 
@@ -183,11 +188,16 @@ def switch_world():
         return _flash_redirect(url_for("worlds.list_worlds"),
                                f"世界 '{new_world}' 不存在", "error")
 
-    _update_env("ACTIVE_WORLD", new_world)
-    audit_log("切换世界", f"{new_world}")
-    logger.info("Web panel: switched ACTIVE_WORLD to %s", new_world)
+    ctx = _ctx()
+    ok = ctx.world_manager.switch_world(new_world)
+    if not ok:
+        return _flash_redirect(url_for("worlds.list_worlds"),
+                               f"切换世界 '{new_world}' 失败", "error")
+
+    audit_log("切换世界", f"{new_world} (即时生效)")
+    logger.info("Web panel: switched active world to %s (hot-reload)", new_world)
     return _flash_redirect(url_for("worlds.list_worlds"),
-                           f"已切换至 {new_world}，请重启 Bot 生效")
+                           f"已切换至 {new_world}，下次聊天立即生效")
 
 
 @worlds_bp.route("/create", methods=["POST"])

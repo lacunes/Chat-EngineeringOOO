@@ -27,4 +27,6 @@ secrets.json
 backups/
 web_audit.log
 docs/
+.codegraph/
+.reasonix/
 

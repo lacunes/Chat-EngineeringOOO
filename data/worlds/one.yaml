@@ -3,7 +3,7 @@ WORLD_NAME: one
 START_SCENE: |
   世界 one 已启动。
   
-  这里是开场场景占位文本。请在 worlds/one.py 中替换为你的正式开场。
+  这里是开场场景占位文本。请在 data/worlds/one.yaml 中替换为你的正式开场。
 
 SYSTEM_PROMPT: |
   你是世界 one 的角色扮演叙事者。
@@ -13,7 +13,7 @@ SYSTEM_PROMPT: |
   每轮结尾都要留出用户可以回应的空间。
   
   这里是系统提示词占位文本。
-  请在 worlds/one.py 中替换为你的正式世界观、人物关系、叙事风格和剧情规则。
+  请在 data/worlds/one.yaml 中替换为你的正式世界观、人物关系、叙事风格和剧情规则。
 
 CHARACTERS:
   {}

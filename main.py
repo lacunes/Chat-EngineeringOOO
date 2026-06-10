@@ -21,6 +21,7 @@ from bot.memory_manager import MemoryManager
 from bot.relationship_manager import RelationshipManager
 from bot.telegram_handlers import RoleplayBot
 from bot.time_manager import TimeManager
+from bot.world_manager import WorldManager
 from bot.utils import load_world
 from config import settings
 from web.app import AppContext, create_app
@@ -117,8 +118,6 @@ COMMANDS = {
     "next_day":       "推进一天",
     "start":          "启动",
     "reset":          "重开",
-    # 模型供应商管理（仅管理员）
-    "provider":   "模型供应商管理",
 }
 
 
@@ -207,22 +206,21 @@ def main() -> None:
 
     try:
         validate_settings()
-        # 根据 .env 中的 ACTIVE_WORLD 动态导入 worlds/<name>.py。
-        world = load_world(settings.ACTIVE_WORLD)
     except Exception as exc:
         logger.error("Startup failed: %s", exc)
         sys.exit(1)
 
+    # ── 世界管理器（支持热加载和运行时切换）──
+    world_manager = WorldManager()
+    world = world_manager.get_world()
+
     client = DeepSeekClient(settings.DEEPSEEK_KEY, settings.MODEL_NAME)
-    memory = MemoryManager(world.WORLD_NAME)
-    relationships = RelationshipManager(world.WORLD_NAME)
-    time_mgr = TimeManager(world.WORLD_NAME)
 
     # ── 初始化 LLM Router（多供应商路由）──
     llm_router = LLMRouter(notify_callback=None)
     client.set_router(llm_router)
 
-    roleplay_bot = RoleplayBot(world, memory, client, relationships, time_mgr)
+    roleplay_bot = RoleplayBot(world_manager, client)
 
     set_bot_commands()
 
@@ -235,67 +233,6 @@ def main() -> None:
         except Exception:
             pass
     llm_router._notify = _notify_admin
-
-    # ── /provider 命令处理器（管理员专用）──
-    from bot.telegram_handlers import require_auth
-
-    class _ProviderHandler:
-        def __init__(self, router: LLMRouter):
-            self.router = router
-
-        def is_authorized(self, update: Update) -> bool:
-            return bool(update.effective_user and update.effective_user.id == settings.ALLOWED_ID)
-
-        async def send_unauthorized(self, update: Update) -> None:
-            if update.message:
-                await update.message.reply_text("你不是我认识的人。")
-
-        @require_auth
-        async def cmd_provider(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-            args = context.args
-            if not args:
-                await update.message.reply_text(
-                    "用法：\n"
-                    "/provider status — 查看状态\n"
-                    "/provider auto — 自动模式\n"
-                    "/provider zhipu — 手动优先智谱\n"
-                    "/provider qwen — 手动优先 Qwen\n"
-                    "/provider deepseek — 手动优先 DeepSeek\n"
-                    "/provider enable <name> — 启用\n"
-                    "/provider disable <name> — 禁用"
-                )
-                return
-            sub = args[0].lower()
-            if sub == "status":
-                await update.message.reply_text(self.router.get_status_text())
-            elif sub == "auto":
-                self.router.set_mode_auto()
-                await update.message.reply_text("✅ 已切换到自动模式。")
-            elif sub == "zhipu":
-                self.router.set_mode_manual("zhipu_glm_air")
-                await update.message.reply_text("🔧 已手动优先使用 zhipu_glm_air。")
-            elif sub == "qwen":
-                self.router.set_mode_manual("openrouter_qwen_235b")
-                await update.message.reply_text("🔧 已手动优先使用 openrouter_qwen_235b。")
-            elif sub == "deepseek":
-                self.router.set_mode_manual("deepseek_v4_flash")
-                await update.message.reply_text("🔧 已手动优先使用 deepseek_v4_flash。")
-            elif sub == "enable" and len(args) >= 2:
-                name = args[1]
-                ok = self.router.enable_provider(name)
-                await update.message.reply_text(
-                    f"✅ 已启用 {name}。" if ok else f"❌ 找不到 provider: {name}"
-                )
-            elif sub == "disable" and len(args) >= 2:
-                name = args[1]
-                ok = self.router.disable_provider(name)
-                await update.message.reply_text(
-                    f"✅ 已禁用 {name}。" if ok else f"❌ 找不到 provider: {name}"
-                )
-            else:
-                await update.message.reply_text(f"未知子命令: {sub}")
-
-    provider_handler = _ProviderHandler(llm_router)
 
     # 注册全局错误处理器（必须在 add_handler 之前注册）
     app.add_error_handler(error_handler)
@@ -314,7 +251,6 @@ def main() -> None:
         "time":          roleplay_bot.cmd_time,
         "next_time":     roleplay_bot.cmd_next_time,
         "next_day":      roleplay_bot.cmd_next_day,
-        "provider":      provider_handler.cmd_provider,
     }
     for cmd in COMMANDS:
         app.add_handler(CommandHandler(cmd, handler_map[cmd]))
@@ -327,7 +263,7 @@ def main() -> None:
     # 在不同版本中对事件循环的管理方式不同）。
 
     # ── 启动 Web 管理面板（守护线程）──
-    ctx = AppContext(world, memory, client, roleplay_bot.npc_manager, relationships, time_mgr, time.time())
+    ctx = AppContext(world_manager, roleplay_bot, client, time.time())
     web_app = create_app(ctx)
     threading.Thread(
         target=lambda: web_app.run(

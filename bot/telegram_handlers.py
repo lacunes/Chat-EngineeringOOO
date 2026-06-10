@@ -11,8 +11,11 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from bot import utils
+from bot.memory_manager import MemoryManager
 from bot.npc_manager import NPCManager
+from bot.relationship_manager import RelationshipManager
 from bot.story_state import StoryStateManager
+from bot.time_manager import TimeManager
 from config import prompts, settings
 
 
@@ -34,22 +37,37 @@ class RoleplayBot:
     """Telegram 命令与普通消息处理。
 
     这个类只负责 Telegram 交互流程。
-    世界观来自 worlds/*.py，记忆由 MemoryManager 管理，模型调用由 DeepSeekClient 管理。
+    世界观来自 data/worlds/*.yaml，记忆由 MemoryManager 管理，模型调用由 DeepSeekClient 管理。
+    支持运行时热切换世界（通过 WorldManager）。
     """
 
-    def __init__(self, world, memory, client, relationship_manager, time_manager):
-        self.world = world
-        self.memory = memory
+    def __init__(self, world_manager, client):
+        self.world_manager = world_manager
         self.client = client
-        self.relationship_manager = relationship_manager
-        self.time_manager = time_manager
+        self._init_managers()
+
+    def _init_managers(self) -> None:
+        """初始化/重新初始化所有世界相关的管理器。"""
+        world = self.world_manager.get_world()
+        self.world = world
+        self.memory = MemoryManager(world.WORLD_NAME)
+        self.relationship_manager = RelationshipManager(world.WORLD_NAME)
+        self.time_manager = TimeManager(world.WORLD_NAME)
         # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
-        self.npc_manager = NPCManager(world, memory)
+        self.npc_manager = NPCManager(world, self.memory)
         # 剧情状态管理器 —— 纯本地 JSON，不影响 API 调用频率
         self.story_state = StoryStateManager(world.WORLD_NAME, settings.MEMORY_DIR)
         # 防止后台记忆维护任务堆积
         self._bg_maintenance_running = False
         self._last_maintenance_time: float = 0.0
+
+    def _ensure_world_current(self) -> None:
+        """检查世界是否被 Web 面板切换，是则自动重新初始化所有管理器。"""
+        current_name = self.world_manager.world_name
+        if current_name != self.world.WORLD_NAME:
+            logger.info("World changed from %s to %s, reinitializing managers...",
+                       self.world.WORLD_NAME, current_name)
+            self._init_managers()
 
     def is_authorized(self, update: Update) -> bool:
         return bool(update.effective_user and update.effective_user.id == settings.ALLOWED_ID)
@@ -75,9 +93,18 @@ class RoleplayBot:
 
     @require_auth
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        # 获取当前活跃的 provider 信息
+        provider_info = "N/A"
+        if self.client.router:
+            providers = self.client.router.get_provider_list()
+            active = [p for p in providers if p.get("enabled") and p.get("has_api_key")]
+            if active:
+                provider_info = f"{active[0]['name']} ({active[0]['model']})"
+
         await update.message.reply_text(
             f"当前状态：\n"
             f"当前世界：{self.world.WORLD_NAME}\n"
+            f"模型供应商：{provider_info}\n"
             f"短期记忆条数：{self.memory.message_count}\n"
             f"长期记忆条数：{self.memory.long_memory_count}\n"
             f"短期记忆文件：memory/{self.world.WORLD_NAME}_memory.json\n"
@@ -85,7 +112,6 @@ class RoleplayBot:
             f"上下文条数：{settings.CONTEXT_LENGTH}\n"
             f"长期记忆注入条数：{settings.LONG_MEMORY_CONTEXT_LIMIT}\n"
             f"自动长期记忆间隔：{settings.AUTO_MEMORY_INTERVAL} 条消息\n"
-            f"模型：{settings.MODEL_NAME}\n"
             f"回复长度：{settings.MIN_REPLY_TOKENS}~{settings.MAX_REPLY_TOKENS}\n"
             f"分段阈值：{settings.SPLIT_THRESHOLD} 字符\n"
             f"续写上限：/c {settings.CONTINUE_LIMIT}\n"
@@ -266,6 +292,9 @@ class RoleplayBot:
         关键优化：compress_old_memory 和 auto_extract_long_memory
         从主流程中移出，作为后台任务异步执行，不再阻塞用户收到回复。
         """
+        # ── 检测世界是否被 Web 面板切换 ──
+        self._ensure_world_current()
+
         # ── NPC主动行为：更新冷却、获取舞台指令 ──
         self.npc_manager.tick()
         # 获取剧情状态的禁止事件列表

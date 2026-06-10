@@ -46,6 +46,9 @@
       </a>
 
       <div class="nav-section">系统</div>
+      <a href="{{ url_for('providers.index') }}" class="{% if request.endpoint and request.endpoint.startswith('providers') %}active{% endif %}">
+        <span class="nav-icon">🔌</span> 模型管理
+      </a>
       <a href="{{ url_for('logs.index') }}" class="{% if request.endpoint and request.endpoint.startswith('logs') %}active{% endif %}">
         <span class="nav-icon">📜</span> 日志
       </a>

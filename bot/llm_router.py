@@ -10,6 +10,7 @@ LLM Router — 多模型供应商自动路由与故障切换。
 """
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -48,6 +49,20 @@ _state_lock = threading.RLock()
 _usage_lock = threading.Lock()
 
 
+def _backup_providers_yaml(path: Path) -> None:
+    """备份 providers.yaml 到 backups/ 目录。"""
+    try:
+        backup_dir = path.parent.parent / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_dir / f"providers_{ts}.yaml"
+        import shutil
+        shutil.copy2(path, backup_path)
+        logger.debug("Backed up providers.yaml to %s", backup_path)
+    except Exception as e:
+        logger.warning("Failed to backup providers.yaml: %s", e)
+
+
 # ═══════════════════════════════════════════════════════════════
 # 状态持久化
 # ═══════════════════════════════════════════════════════════════
@@ -76,32 +91,14 @@ def _load_state() -> dict:
 
 
 def _default_state() -> dict:
+    """返回最小默认状态（不再写死 provider 名称）。
+
+    具体 provider 的状态由 _load_and_merge_state() 根据 providers.yaml 自动补齐。
+    """
     return {
         "mode": "auto",
         "manual_provider": None,
-        "providers": {
-            "zhipu_glm_air": {
-                "consecutive_failures": 0,
-                "cooldown_until": None,
-                "exhausted": False,
-                "last_failure_reason": None,
-                "last_failure_time": None,
-            },
-            "openrouter_qwen_235b": {
-                "consecutive_failures": 0,
-                "cooldown_until": None,
-                "exhausted": False,
-                "last_failure_reason": None,
-                "last_failure_time": None,
-            },
-            "deepseek_v4_flash": {
-                "consecutive_failures": 0,
-                "cooldown_until": None,
-                "exhausted": False,
-                "last_failure_reason": None,
-                "last_failure_time": None,
-            },
-        },
+        "providers": {},
         "last_fallback_time": None,
         "last_fallback_reason": None,
     }
@@ -239,6 +236,7 @@ class LLMRouter:
         self._providers_config: list[dict] = []  # 当前生效的 provider 列表
         self._providers_by_name: dict[str, dict] = {}  # name → provider 快速查找
         self._state: dict = _default_state()  # 运行时状态
+        self._call_history: collections.deque = collections.deque(maxlen=20)  # 最近 20 次 LLM 调用记录
 
         # 确保 .env 已加载（settings 模块在 import 时已调用 load_dotenv）
         self._reload_providers()
@@ -271,7 +269,7 @@ class LLMRouter:
             logger.warning("Failed to reload providers.yaml: %s", e)
 
     def _check_reload(self) -> None:
-        """检查 providers.yaml 是否已修改，是则自动重载。"""
+        """检查 providers.yaml 是否已修改，是则自动重载并合并状态。"""
         path = _providers_yaml_path()
         if not path.exists():
             return
@@ -280,19 +278,26 @@ class LLMRouter:
             if mtime != self._providers_mtime:
                 logger.info("providers.yaml changed, hot-reloading...")
                 self._reload_providers()
+                self._load_and_merge_state()
         except Exception:
             pass
 
     # ── 状态管理 ──
 
     def _load_and_merge_state(self) -> None:
-        """加载持久化状态，并与当前 providers 配置合并。"""
+        """加载持久化状态，并与当前 providers 配置合并。
+
+        - 自动补齐新增 provider 的状态条目
+        - 清理 providers.yaml 中已删除的 provider 状态
+        """
         saved = _load_state()
         self._state = saved
 
+        # 当前 YAML 中的 provider 名称集合
+        current_names = {p.get("name", "") for p in self._providers_config if p.get("name")}
+
         # 确保状态中每个 provider 都有条目
-        for p in self._providers_config:
-            name = p.get("name", "")
+        for name in current_names:
             if name and name not in self._state.get("providers", {}):
                 self._state.setdefault("providers", {})[name] = {
                     "consecutive_failures": 0,
@@ -301,6 +306,14 @@ class LLMRouter:
                     "last_failure_reason": None,
                     "last_failure_time": None,
                 }
+
+        # 清理 YAML 中已不存在的 provider 状态
+        state_providers = self._state.get("providers", {})
+        stale = [name for name in state_providers if name not in current_names]
+        for name in stale:
+            logger.info("Cleaning up stale provider state: %s", name)
+            del state_providers[name]
+
         _save_state(self._state)
 
     def _get_provider_state(self, name: str) -> dict:
@@ -520,12 +533,44 @@ class LLMRouter:
                 if p.get("name") == name:
                     p["enabled"] = enabled
                     break
+            # 自动备份
+            _backup_providers_yaml(path)
             with open(path, "w", encoding="utf-8") as f:
                 yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
             # 立即重载
             self._reload_providers()
+            self._load_and_merge_state()
         except Exception as e:
             logger.warning("Failed to update providers.yaml for %s: %s", name, e)
+
+    def save_providers_config(self, providers_list: list[dict]) -> bool:
+        """用新配置覆盖 providers.yaml（带备份）。返回是否成功。"""
+        path = _providers_yaml_path()
+        if not path.exists():
+            return False
+        try:
+            data = {"providers": providers_list}
+            # 备份
+            _backup_providers_yaml(path)
+            # 写入
+            with open(path, "w", encoding="utf-8") as f:
+                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            # 立即重载
+            self._reload_providers()
+            self._load_and_merge_state()
+            logger.info("providers.yaml saved and reloaded")
+            return True
+        except Exception as e:
+            logger.warning("Failed to save providers.yaml: %s", e)
+            return False
+
+    def clear_provider_state(self, name: str) -> bool:
+        """清除某个 provider 的 failures/cooldown/exhausted。返回是否成功。"""
+        if name not in self._providers_by_name:
+            return False
+        self._clear_exhausted(name)
+        logger.info("Provider %s state cleared", name)
+        return True
 
     # ── 核心调用逻辑 ──
 
@@ -683,12 +728,18 @@ class LLMRouter:
                 logger.info("[LLMRouter] 开始记录 provider state: %s (success)", p_name)
                 self._record_success(p_name)
                 logger.info("[LLMRouter] state 保存完成: %s", p_name)
-                _log_llm_usage({
+
+                # 构建日志条目
+                log_entry = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "task_type": task_type,
+                    "purpose": purpose,
                     "provider": p_name,
                     "model": provider_config.get("model", ""),
                     "success": True,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "finish_reason": attempt_finish,
                     "latency_ms": round((time.time() - start_time) * 1000),
                     "prompt_tokens": usage.get("prompt_tokens", 0) if usage else 0,
                     "completion_tokens": usage.get("completion_tokens", 0) if usage else 0,
@@ -698,7 +749,9 @@ class LLMRouter:
                     "fallback_from": fallback_from,
                     "fallback_to": fallback_to,
                     "retry_count": total_retries,
-                })
+                }
+                _log_llm_usage(log_entry)
+                self._call_history.append(log_entry)
                 logger.info("LLM call succeeded via %s (%s)", p_name, purpose)
                 logger.info("[LLMRouter] 准备返回 reply provider=%s latency=%sms",
                            p_name, round((time.time() - start_time) * 1000))
@@ -712,12 +765,16 @@ class LLMRouter:
                 self._mark_exhausted(p_name)
 
         # ── 所有 provider 都失败了 ──
-        _log_llm_usage({
+        log_entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "task_type": task_type,
+            "purpose": purpose,
             "provider": candidates[-1] if candidates else "none",
             "model": "",
             "success": False,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "finish_reason": "",
             "latency_ms": round((time.time() - start_time) * 1000),
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -727,7 +784,9 @@ class LLMRouter:
             "fallback_from": fallback_from,
             "fallback_to": "",
             "retry_count": total_retries,
-        })
+        }
+        _log_llm_usage(log_entry)
+        self._call_history.append(log_entry)
 
         self._notify_admin(
             f"🚨 所有模型供应商均调用失败！最后错误: {error_type} — {error_message[:100]}"
@@ -869,10 +928,80 @@ class LLMRouter:
                     return reply, finish_reason, usage
             raise
 
-    # ── 用于获取 provider 列表（供 Web 面板使用）──
+    # ── 测试连接 ──
+
+    def test_connection(self, provider_name: str) -> dict:
+        """同步测试某个 provider 的连接。
+
+        发送固定消息 "请只回复 OK"，返回结果字典：
+        {
+            "ok": bool,
+            "reply": str,
+            "latency_ms": int,
+            "error": str,
+            "model": str,
+        }
+        """
+        p_config = self._providers_by_name.get(provider_name)
+        if not p_config:
+            return {"ok": False, "reply": "", "latency_ms": 0,
+                    "error": f"Provider '{provider_name}' 不存在", "model": ""}
+
+        api_key_env = p_config.get("api_key_env", "")
+        api_key = os.getenv(api_key_env, "").strip() if api_key_env else ""
+        if not api_key:
+            return {"ok": False, "reply": "", "latency_ms": 0,
+                    "error": f"缺少 API Key（环境变量 {api_key_env}）", "model": p_config.get("model", "")}
+
+        model = p_config.get("model", "")
+        base_url = p_config.get("base_url", "")
+        timeout = p_config.get("timeout_chat_seconds", 30)
+
+        messages = [{"role": "user", "content": "请只回复 OK"}]
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        if "openrouter" in base_url.lower():
+            headers["HTTP-Referer"] = "https://t.me/roleplay_bot"
+            headers["X-Title"] = "RoleplayBot"
+
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": 10,
+        }
+        # 关闭思考模式
+        if not p_config.get("thinking_enabled", False):
+            payload["thinking"] = {"type": "disabled"}
+
+        start = time.time()
+        try:
+            resp = requests.post(base_url, headers=headers, json=payload, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            if "choices" in data and data["choices"]:
+                reply = (data["choices"][0].get("message", {}).get("content") or "").strip()
+            else:
+                reply = "(空回复)"
+            latency = round((time.time() - start) * 1000)
+            return {"ok": True, "reply": reply, "latency_ms": latency, "error": "", "model": model}
+        except Exception as exc:
+            latency = round((time.time() - start) * 1000)
+            return {"ok": False, "reply": "", "latency_ms": latency,
+                    "error": str(exc)[:300], "model": model}
+
+    # ── 调用历史 ──
+
+    def get_call_history(self) -> list[dict]:
+        """获取最近 20 次 LLM 调用记录。"""
+        return list(self._call_history)
+
+    # ── 获取 provider 完整信息（供 Web 面板使用）──
 
     def get_provider_list(self) -> list[dict]:
-        """获取所有 provider 配置和状态的合并列表。"""
+        """获取所有 provider 配置和状态的合并列表（供 Web 面板使用）。"""
         self._check_reload()
         result = []
         for p in self._providers_config:
@@ -880,16 +1009,31 @@ class LLMRouter:
             st = self._get_provider_state(name)
             api_key_env = p.get("api_key_env", "")
             has_key = bool(os.getenv(api_key_env)) if api_key_env else False
+
+            # 冷却剩余秒数
+            cooldown_until = st.get("cooldown_until")
+            cooldown_remaining = 0
+            if cooldown_until:
+                cooldown_remaining = max(0, int(cooldown_until - time.time()))
+
             result.append({
                 "name": name,
                 "enabled": p.get("enabled", False),
                 "priority": p.get("priority", 99),
                 "model": p.get("model", ""),
+                "base_url": p.get("base_url", ""),
                 "task_types": p.get("task_types", []),
                 "has_api_key": has_key,
+                "api_key_env": api_key_env,
+                "timeout_chat_seconds": p.get("timeout_chat_seconds", 60),
+                "timeout_background_seconds": p.get("timeout_background_seconds", 30),
+                "cooldown_seconds": p.get("cooldown_seconds", 300),
+                "max_consecutive_failures": p.get("max_consecutive_failures", 3),
                 "consecutive_failures": st.get("consecutive_failures", 0),
-                "cooldown_until": st.get("cooldown_until"),
+                "cooldown_until": cooldown_until,
+                "cooldown_remaining": cooldown_remaining,
                 "exhausted": st.get("exhausted", False),
                 "last_failure_reason": st.get("last_failure_reason"),
+                "last_failure_time": st.get("last_failure_time"),
             })
         return result

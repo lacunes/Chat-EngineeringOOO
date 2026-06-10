@@ -62,8 +62,8 @@ ALLOWED_ID = _get_int("ALLOWED_ID", 0)
 # 世界与模型配置
 # ═══════════════════════════════════════════════════════════════
 
-# 当前启用的世界，对应 worlds/<name>.py 文件名。
-# 切换世界只需改这个值并重启。
+# 当前启用的世界，对应 data/worlds/<name>.yaml 文件名。
+# 可通过 runtime_state.json 在 Web 面板动态切换（无需重启）。
 ACTIVE_WORLD = os.getenv("ACTIVE_WORLD", "one").strip().lower()
 
 # DeepSeek 模型名。

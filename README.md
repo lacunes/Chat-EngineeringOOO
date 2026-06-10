@@ -75,16 +75,20 @@ project/
 │   │   ├── memory_audit.py      # 记忆污染检查
 │   │   ├── relations.py         # 关系网络
 │   │   ├── time_routes.py       # 时间与节奏
+│   │   ├── providers.py         # 模型供应商管理
 │   │   └── logs.py              # 日志查看
 │   ├── templates/               # Jinja2 模板
 │   └── static/
 │       ├── css/app.css          # 深色主题样式
 │       └── js/app.js            # 前端交互
 │
-├── worlds/
-│   ├── one.py
-│   ├── two.py
-│   └── three.py
+├── data/
+│   ├── worlds/                  # 世界数据（YAML 格式）
+│   │   ├── one.yaml
+│   │   ├── two.yaml
+│   │   └── three.yaml
+│   ├── runtime_state.json       # 运行时状态（active_world 等）
+│   └── provider_state.json      # 模型供应商运行时状态
 │
 ├── memory/
 │
@@ -98,29 +102,25 @@ project/
 
 # 🌍 世界观系统
 
-所有剧情均位于：
+所有世界数据存储在：
 
 ```text
-worlds/
-```
-
-例如：
-
-```text
-worlds/
-├── one.py
-├── two.py
-└── three.py
+data/worlds/
+├── one.yaml
+├── two.yaml
+└── three.yaml
 ```
 
 每个世界都拥有自己的：
 
+* WORLD_NAME
 * SYSTEM_PROMPT
 * START_SCENE
 * CHARACTERS
 * RULES
 * LOCATIONS
 * EVENT_POOL
+* NPCS
 
 ---
 
@@ -465,7 +465,8 @@ http://你的VPS_IP:8080
 |------|------|
 | 📊 仪表盘 | 运行状态、记忆/关系/时间统计、NPC 状态、最近异常摘要（点击展开 traceback）、重置世界 |
 | ⚙ 配置中心 | 21 项剧情与行为参数管理：中文名称 + 推荐范围 + 说明，保存前自动备份 .env |
-| 🌍 世界编辑器 | 列表/新建/复制/删除世界，普通表单编辑 + 高级源码编辑（语法检查+备份回滚），Prompt 预览 |
+| 🌍 世界编辑器 | 列表/新建/复制/删除世界，即时切换世界（无需重启），表单编辑（语法检查+备份回滚），Prompt 预览 |
+| 🔌 模型管理 | 查看所有 provider 状态、切换自动/手动模式、启用/禁用、测试连接、清除失败状态、LLM 调用历史 |
 | 🧠 记忆管理 | 短期记忆浏览 + 长期记忆查看/新增/编辑/删除/精炼 |
 | 🔍 记忆检查 | 长期记忆污染检查：规则检查 + AI 检查，8 种问题类型，报告存档，支持采用建议/手动编辑/忽略 |
 | 💞 关系网络 | 角色关系编辑（-100 锁死极低 / 0-100 正常 / 110 锁死极高），中文维度说明 |
@@ -615,6 +616,11 @@ TIME_AUTO_CROSS_DAY=false             # 禁止普通推进跨天
 * [x] 记忆污染检查（规则 + AI 两层）
 * [x] 剧情节奏控制（runtime_directive.json）
 * [x] 时间流逝系统
+* [x] 多模型供应商路由（LLM Router + Web 模型管理）
+* [x] 世界热切换（无需重启）
+* [ ] 世界状态数据库
+* [ ] 多角色同时对话
+* [ ] 自动事件系统
 
 ---
 

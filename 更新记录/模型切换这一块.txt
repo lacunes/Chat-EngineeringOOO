@@ -1,0 +1,329 @@
+你现在需要为我的 Telegram AI 聊天机器人项目实现一个“多模型供应商自动路由与故障切换”功能。请先完整阅读项目结构和现有调用链，再进行小步重构，不要一次性重写整个项目。其中“docs”文件夹下是项目开发文档，可以帮助你，你完成任务后记得更新文档。
+
+项目地址/当前项目：
+当前主要功能：Telegram 私人 AI 聊天机器人，原本通过 deepseek_client.py 调用 DeepSeek API。项目里已有角色聊天、上下文、记忆、关系抽取、自动总结等功能。请在尽量不破坏现有功能的前提下，实现通用 LLM Router。
+
+一、总体目标
+
+实现一个多供应商 LLM 调用系统，支持：
+
+1. 多模型供应商配置。
+2. 按优先级自动调用。
+3. 当前供应商失败时自动 fallback 到下一个供应商。
+4. 支持 provider 冷却、永久跳过、手动切换、自动模式。
+5. 修改 providers.yaml 后无需重启 main.py，下一次请求自动生效。
+6. Telegram 命令可以查看和切换 provider。
+7. 保留 deepseek_client.py 兼容层，避免破坏旧调用。
+
+目标优先级是：省钱优先，其次稳定，最后质量。
+
+二、模型供应商优先级
+
+第一版请支持以下 provider：
+
+1. zhipu_glm_air
+
+   * 智谱官方
+   * model: glm-4.5-air
+   * 默认 enabled: true
+   * 用作主力免费额度模型
+
+2. openrouter_qwen_235b
+
+   * OpenRouter
+   * model: qwen/qwen3-235b-a22b-2507
+   * 默认 enabled: false
+   * 第一版先写入配置结构，但默认禁用，未来手动开启
+
+3. deepseek_v4_flash
+
+   * DeepSeek 官方
+   * model: deepseek-v4-flash，或者按项目当前 DeepSeek V4 Flash 可用模型名设置
+   * 默认 enabled: true
+   * 作为付费兜底模型
+
+主聊天优先级：
+
+zhipu_glm_air → openrouter_qwen_235b → deepseek_v4_flash
+
+后台任务优先级：
+
+zhipu_glm_air → deepseek_v4_flash
+
+后台任务包括但不限于：记忆总结、关系抽取、旧上下文压缩、摘要生成等。后台任务暂时不走 OpenRouter Qwen。
+
+三、配置文件设计
+
+请新增 providers.yaml，用于保存非敏感 provider 配置。
+
+API Key 不要写入 providers.yaml，仍然放在 .env。providers.yaml 只引用环境变量名。
+
+示例结构可以类似：
+
+providers:
+
+* name: zhipu_glm_air
+  enabled: true
+  priority: 1
+  task_types: ["chat", "memory", "summary", "relation"]
+  api_key_env: "ZHIPU_API_KEY"
+  base_url: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+  model: "glm-4.5-air"
+  timeout_chat_seconds: 60
+  timeout_background_seconds: 30
+  max_retries: 1
+  cooldown_seconds: 300
+  max_consecutive_failures: 3
+  disable_on_quota_exhausted: true
+  thinking_enabled: false
+
+* name: openrouter_qwen_235b
+  enabled: false
+  priority: 2
+  task_types: ["chat"]
+  api_key_env: "OPENROUTER_API_KEY"
+  base_url: "https://openrouter.ai/api/v1/chat/completions"
+  model: "qwen/qwen3-235b-a22b-2507"
+  timeout_chat_seconds: 60
+  timeout_background_seconds: 30
+  max_retries: 1
+  cooldown_seconds: 300
+  max_consecutive_failures: 3
+  disable_on_quota_exhausted: true
+  thinking_enabled: false
+
+* name: deepseek_v4_flash
+  enabled: true
+  priority: 3
+  task_types: ["chat", "memory", "summary", "relation"]
+  api_key_env: "DEEPSEEK_API_KEY"
+  base_url: "https://api.deepseek.com/chat/completions"
+  model: "deepseek-v4-flash"
+  timeout_chat_seconds: 60
+  timeout_background_seconds: 30
+  max_retries: 1
+  cooldown_seconds: 300
+  max_consecutive_failures: 3
+  disable_on_quota_exhausted: true
+  thinking_enabled: false
+
+如果现有项目仍使用 DEEPSEEK_KEY、DEEPSEEK_API_URL、MODEL_NAME，请尽量保留兼容读取逻辑，避免旧配置直接失效。
+
+四、.env 设计
+
+.env 中新增：
+
+ZHIPU_API_KEY=xxx
+OPENROUTER_API_KEY=xxx
+DEEPSEEK_API_KEY=xxx
+
+可以保留旧变量：
+
+DEEPSEEK_KEY=xxx
+DEEPSEEK_API_URL=xxx
+MODEL_NAME=xxx
+
+但新功能优先读取 providers.yaml + 对应 api_key_env。
+
+五、路由器设计
+
+请新增 bot/llm_router.py，或放在项目合适位置，实现 LLMRouter。
+
+LLMRouter 职责：
+
+1. 读取 providers.yaml。
+2. 在每次 API 调用前检查 providers.yaml 是否修改，如果修改则自动重新加载。
+3. 根据 task_type 选择可用 provider。
+4. 按 priority 排序。
+5. 跳过 disabled、cooldown 中、quota exhausted、缺少 API Key 的 provider。
+6. 调用 provider。
+7. 如果失败，按规则重试和 fallback。
+8. 成功后清零该 provider 的连续失败计数。
+9. 失败后增加该 provider 的连续失败计数。
+10. 同一 provider 连续失败 3 次，进入冷却。
+11. 如果明确是余额不足、额度耗尽、quota exceeded、insufficient quota 等错误，标记为 exhausted，永久跳过，直到手动启用。
+12. 写日志。
+13. 必要时给管理员发送一次 Telegram 提醒。
+
+六、失败与切换规则
+
+以下情况需要触发 fallback：
+
+1. 余额不足 / 额度耗尽 / quota_exceeded / insufficient_quota。
+2. 429 限速。
+3. 500 / 502 / 503 / 504 服务错误。
+4. 请求超时。
+5. 空回复。
+6. 返回格式异常。
+7. 网络错误。
+
+重试策略：
+
+1. 同一个 provider 最多重试 1 次。
+2. 重试仍失败后，切换到下一个 provider。
+3. 所有 provider 都失败后，返回用户友好的错误消息。
+4. 成功一次后清零该 provider 的连续失败计数。
+
+冷却策略：
+
+1. 同一个 provider 连续失败 3 次后进入 cooldown。
+2. cooldown 默认 300 秒。
+3. cooldown 结束后自动允许再次尝试。
+4. 但 quota exhausted / 余额不足类错误不是临时冷却，而是永久跳过，直到手动恢复。
+
+超时策略：
+
+1. 主聊天请求超时 60 秒。
+2. 后台任务请求超时 30 秒。
+
+七、thinking / reasoning
+
+默认关闭 thinking / reasoning。
+
+对智谱 GLM-4.5-Air，请尝试在请求体中加入类似：
+
+"thinking": {"type": "disabled"}
+
+如果某个 provider 不支持该字段，不应导致整体崩溃，可以按 provider 配置决定是否发送该字段。
+
+OpenRouter / Qwen 第一版也不需要 thinking。
+
+八、状态持久化
+
+请新增 data/provider_state.json，用于保存运行时状态。
+
+需要保存：
+
+1. 当前模式：auto / manual。
+2. 手动指定的 provider。
+3. 每个 provider 的 consecutive_failures。
+4. 每个 provider 的 cooldown_until。
+5. 每个 provider 是否 exhausted。
+6. 最近一次 fallback 时间。
+7. 最近一次 fallback 原因。
+
+程序重启后应恢复状态，避免重启后反复撞已经耗尽额度的 provider。
+
+九、Telegram 命令
+
+请实现管理员专用命令。只有管理员用户可以执行这些命令。
+
+需要支持：
+
+/provider status
+显示当前模式、当前优先 provider、所有 provider 状态、是否 enabled、是否 cooldown、是否 exhausted、连续失败次数、最近失败原因。
+
+/provider auto
+切回自动模式。
+
+/provider zhipu
+手动优先使用 zhipu_glm_air。
+
+/provider qwen
+手动优先使用 openrouter_qwen_235b。
+
+/provider deepseek
+手动优先使用 deepseek_v4_flash。
+
+/provider enable <provider_name>
+启用 provider，并清除 exhausted / cooldown 状态。
+
+/provider disable <provider_name>
+禁用 provider。
+
+手动指定 provider 后，仍然允许失败 fallback。也就是说手动模式只是“优先使用该 provider”，不是“只允许使用该 provider”。如果手动指定的 provider 失败，应继续走 fallback，避免机器人瘫痪。
+
+十、Telegram 提醒
+
+只在以下情况提醒管理员，不要每次调用都提醒：
+
+1. 发生 fallback。
+2. 某 provider 连续失败 3 次进入 cooldown。
+3. 某 provider 因额度耗尽被标记为 exhausted。
+4. 所有 provider 都失败。
+
+提醒示例：
+
+⚠️ zhipu_glm_air 连续失败 3 次，已进入冷却，当前切换到 deepseek_v4_flash。
+
+⚠️ zhipu_glm_air 额度耗尽，已永久跳过，直到手动 /provider enable zhipu_glm_air。
+
+普通成功调用不要提醒，避免刷屏。
+
+十一、日志要求
+
+请新增或扩展 logs/llm_usage.jsonl。
+
+每次 LLM 调用记录：
+
+1. timestamp
+2. task_type
+3. provider
+4. model
+5. success
+6. latency_ms
+7. prompt_tokens
+8. completion_tokens
+9. total_tokens
+10. error_type
+11. error_message 简短摘要
+12. fallback_from
+13. fallback_to
+14. retry_count
+
+重要：不要记录完整 prompt，不要记录完整用户消息，不要记录完整模型回复，不要记录 API Key。
+
+十二、兼容层要求
+
+不要直接删除 deepseek_client.py。
+
+推荐做法：
+
+1. 新增 llm_router.py。
+2. 将实际调用逻辑迁移到 LLMRouter。
+3. deepseek_client.py 保留原有类名或函数名，内部调用 LLMRouter。
+4. 保证旧代码中调用 DeepSeekClient 的地方尽量不需要大改，或者只做小范围替换。
+5. 原有记忆、关系抽取、聊天上下文功能必须继续可用。
+
+十三、任务类型
+
+请为不同调用传入 task_type：
+
+1. 主聊天：task_type="chat"
+2. 记忆总结：task_type="memory"
+3. 关系抽取：task_type="relation"
+4. 上下文压缩：task_type="summary" 或 "compression"
+
+如果第一版无法完整区分所有后台任务，至少保证主聊天和后台任务能区分：
+
+chat
+background
+
+十四、验收标准
+
+请完成后进行以下检查：
+
+1. 启动 main.py 不报错。
+2. 原 Telegram 聊天功能正常。
+3. 默认优先调用 zhipu_glm_air。
+4. 当 zhipu_glm_air 配置错误或模拟失败时，能自动 fallback 到 deepseek_v4_flash。
+5. openrouter_qwen_235b 写入 providers.yaml，但默认 enabled: false。
+6. 修改 providers.yaml 后，不重启 main.py，下一条消息自动读取新配置。
+7. /provider status 能显示状态。
+8. /provider deepseek 能手动优先 DeepSeek。
+9. /provider auto 能恢复自动模式。
+10. provider 连续失败 3 次进入 cooldown。
+11. quota exhausted 类错误会永久跳过。
+12. logs/llm_usage.jsonl 有记录，但不包含完整 prompt、回复、API Key。
+13. data/provider_state.json 能保存状态，重启后能恢复。
+
+十五、实现风格要求
+
+1. 不要大规模重写整个项目。
+2. 优先小步提交、小步修改。
+3. 保持现有配置兼容。
+4. 对异常做充分处理，不要让单个 provider 报错导致整个 bot 崩溃。
+5. 新增必要注释，方便我后续维护。
+6. 如果需要新增依赖，优先选择轻量依赖；如果只是读取 YAML，可以使用 PyYAML，但请同步更新 requirements.txt。
+7. 如果可以不用复杂依赖，就不要引入过重框架。
+8. 最后请输出修改了哪些文件、如何配置 .env 和 providers.yaml、如何测试。

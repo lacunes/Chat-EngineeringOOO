@@ -1,0 +1,107 @@
+请你先完整阅读当前项目，不要立刻写代码。重点阅读：
+
+1. README.md
+2. main.py
+3. bot/telegram_handlers.py
+4. bot/memory_manager.py
+5. bot/relationship_manager.py
+6. bot/npc_manager.py
+7. config/settings.py
+8. config/prompts.py
+9. worlds/one.py
+10. web/app.py
+11. web/templates.py
+12. memory/ 目录下现有文件结构
+
+我现在不想把项目做成强剧情推进器，也不想做任务系统或主线系统。
+
+我想新增一个“时间流逝系统”，目标是让角色像真实生活一样，随着聊天轮次、现实时间、关系变化，慢慢经历日常变化。这个系统不应该强行推动剧情，只应该为角色生活提供时间背景。
+
+请先只做方案，不要写代码。
+
+系统目标：
+
+1. 每个世界有独立的时间状态文件。
+   例如：
+   memory/one_time_state.json
+   memory/two_time_state.json
+   memory/three_time_state.json
+
+2. 时间状态不要太复杂，先做轻量版。
+   推荐字段：
+   - day：第几天，例如 1、2、3
+   - time_period：当前时间段，例如 清晨 / 上午 / 中午 / 下午 / 傍晚 / 夜晚 / 深夜
+   - season：季节，例如 春 / 夏 / 秋 / 冬，或者 初夏
+   - last_advance_turn：上次推进时间的对话轮次
+   - last_advance_real_time：上次推进时间的真实时间
+   - recent_days：最近几天的简短生活摘要
+
+3. 时间推进规则要克制。
+   不要每一轮都推进时间。
+   可以按以下逻辑：
+   - 每隔若干轮对话，时间段小幅变化
+   - 或者现实时间过去较久时，自动推进半天/一天
+   - 用户可以用命令手动推进时间
+   - 如果当前对话明显连续，例如正在同一场对话里，不要突然从晚上跳到第二天
+
+4. 时间系统不应该强行制造剧情。
+   它只提供生活背景，例如：
+   - 现在是深夜，角色语气可以更疲惫
+   - 现在是早晨，角色可能刚起床
+   - 已经过去三天，角色关系和生活习惯可能有轻微变化
+
+
+5. 增加 Telegram 命令：
+   /time
+   显示当前世界的时间状态。
+
+   /next_time
+   手动推进到下一个时间段。
+
+   /next_day
+   手动推进到第二天，并生成一条非常简短的“昨日生活变化摘要”。
+
+6. Web 面板增加“时间状态”页面。
+   第一阶段可以只做查看和简单编辑：
+   - day
+   - time_period
+   - season
+   - recent_days
+
+7. 多世界兼容：
+   ACTIVE_WORLD=one 时使用 memory/one_time_state.json。
+   ACTIVE_WORLD=two 时使用 memory/two_time_state.json。
+   不要把不同世界时间混在一起。
+
+8.初始化（/reset）同时也清空时间
+
+9. 文件不存在时自动初始化。
+   不允许因为没有 time_state 文件导致 bot 崩溃。
+
+10. 写文件要安全：
+    - 使用临时文件替换或备份
+    - JSON 格式错误时要有恢复机制
+    - 出错不能影响主聊天流程
+
+11. 不要破坏现有功能：
+    - Telegram 聊天
+    - 长期记忆
+    - 关系网络
+    - NPC 主动行为
+    - Web 面板
+    - VPS 部署方式
+
+请你输出实施方案，包括：
+
+1. 当前项目里应该修改哪些文件
+2. 需要新增哪些文件
+3. time_state 的 JSON 数据结构
+4. 时间推进规则设计
+5. 在主聊天流程中的接入位置
+6. prompt 应该如何注入时间摘要
+7. Telegram 命令如何设计
+8. Web 页面如何设计
+9. 可能风险
+10. 最小可用版本应该先做哪些内容
+
+注意：先只做方案，不要写代码。

@@ -1,0 +1,39 @@
+请大修项目的运行时管理系统，目标是把模型管理和世界切换都迁移到 Web 管理面板，减少 Telegram 命令和 VPS 手动操作。
+
+1. 模型管理：
+- Web 新增“模型管理”页面。
+- 自动读取 providers.yaml 中所有 provider，不允许写死 zhipu/qwen/deepseek/minimax/kimi 等模型名。
+- 页面显示 provider 的 name、model、base_url、enabled、priority、timeout、cooldown、失败次数、冷却状态、exhausted 状态、最近失败原因。
+- 支持 Web 上切换 auto/manual 模式。
+- 支持 Web 上选择任意 provider 作为 manual_provider，并立即生效。
+- 支持启用/禁用 provider，保存回 providers.yaml，并自动备份旧文件。
+- 支持清除某个 provider 的 failures/cooldown/exhausted。
+- 支持“测试连接”按钮，固定发一句“请只回复 OK”，显示返回、延迟和错误。
+- 删除 Telegram 端 /provider 指令和相关写死分支。
+
+2. provider 状态：
+- provider_state.json 不再写死默认 provider。
+- 启动和 providers.yaml 热重载时，根据 providers.yaml 自动补齐新增 provider 的状态。
+- 对 providers.yaml 中已删除的 provider，状态可以归档或清理。
+- Web 显示当前 provider_mode、manual_provider、实际调用 provider、最近一次 fallback 原因。
+
+3. 世界热加载：
+- 新增 WorldManager 或等价模块。
+- active_world 不再只依赖 .env，改为 data/runtime_state.json 中的 active_world。
+- Web 上切换 active_world 后，下一次聊天立即生效，不需要重启 main.py。
+- Web 编辑 data/worlds/<name>.yaml 保存后，下一次聊天自动读取最新内容。
+- YAML 保存前必须校验语法，保存前自动备份，保存失败回滚。
+- 保留 JSON 兼容一段时间，但 README 和主流程统一推荐 YAML。
+- 不再支持 worlds/*.py 旧世界格式，删除或归档相关说明。
+
+4. 可观测性：
+- Web 面板显示最近 20 次 LLM 调用记录，包括 provider、model、purpose、max_tokens、temperature、finish_reason、耗时、是否 fallback、错误原因。
+- Web 面板显示当前有效回复长度参数：MIN_REPLY_TOKENS、MID_REPLY_TOKENS、MAX_REPLY_TOKENS、SPLIT_THRESHOLD。
+- 增加“当前实际 Prompt 预览”，展示下一次聊天会用到的世界 prompt、记忆、关系、时间、runtime_directive 等注入内容。
+- 日志中记录每次调用实际传入的 max_tokens、provider、model、finish_reason。
+
+5. 清理旧代码：
+- 清理 README 中 DeepSeek-only、worlds/*.py、重启切换世界等过期说明。
+- 清理 deepseek-only 的旧架构描述。
+- 清理半废弃但仍残留的 Telegram /provider 逻辑。
+- 检查并删除无调用的旧世界加载、旧 provider 写死分支、旧配置项。

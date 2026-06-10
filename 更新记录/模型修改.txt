@@ -1,0 +1,49 @@
+请检查当前项目 DeepSeek 模型配置。
+
+背景：
+DeepSeek 官方已说明 legacy 模型名 deepseek-chat / deepseek-reasoner 将在 2026-07-24 废弃；当前 deepseek-chat 只是兼容映射到 deepseek-v4-flash 的非思考模式，deepseek-reasoner 映射到 deepseek-v4-flash 的思考模式。
+
+目标：
+1. 将默认 MODEL_NAME 从 deepseek-chat 更新为 deepseek-v4-flash。
+2. 保留用户通过 .env 覆盖 MODEL_NAME 的能力。
+3. 不要改变 DEEPSEEK_API_URL，仍使用 https://api.deepseek.com/chat/completions。
+4. 为 DeepSeek 请求增加可配置 thinking 参数。
+5. 默认使用非思考模式：thinking=disabled。
+6. 不要启用思考模式作为角色聊天默认值。
+7. 不要改变 prompt 结构。
+8. 不要增加 API 调用。
+9. 不要影响缓存 usage 日志。
+10. 不要修改 worlds 内容。
+
+请重点查看：
+- .env.example
+- bot/settings.py
+- bot/deepseek_client.py
+- docs/OPERATIONS.md
+- docs/DEVELOPMENT_RULES.md
+- docs/PROMPT_STRUCTURE.md
+
+建议配置：
+MODEL_NAME=deepseek-v4-flash
+DEEPSEEK_THINKING=disabled
+
+如果项目当前没有 DEEPSEEK_THINKING 配置，请新增。
+在 deepseek_client.py 构造请求 payload 时：
+- 如果 DEEPSEEK_THINKING=enabled，则 payload["thinking"] = "enabled"
+- 如果 DEEPSEEK_THINKING=disabled，则 payload["thinking"] = "disabled"
+- 默认 disabled
+- 如果 API 不接受该字段，要能通过配置关闭或回退，不要导致 bot 崩溃
+
+同时更新文档：
+1. 说明 deepseek-chat 是 legacy 兼容名，不建议长期使用。
+2. 说明角色聊天默认 deepseek-v4-flash + thinking disabled。
+3. 说明思考模式更适合复杂推理，不建议作为日常角色聊天默认。
+4. 说明 2026-07-24 前应完成模型名迁移。
+
+修改后请运行语法检查，并输出：
+- 修改了哪些文件
+- 默认模型是否已改为 deepseek-v4-flash
+- 是否保留 .env 覆盖能力
+- thinking 参数如何配置
+- 是否增加 API 调用
+- 是否改变聊天体验

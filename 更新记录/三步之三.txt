@@ -1,0 +1,155 @@
+请阅读当前项目，重点分析并小幅增加“剧情状态机 / 导演台基础能力”。
+
+项目背景：
+这是一个 Telegram AI Roleplay Framework，已有世界观、多角色、长期记忆、短期上下文、NPC 主动行为、关系状态、动态 prompt、Web 管理面板等功能。现在希望让剧情推进更稳定，不要乱飞，不要忽快忽慢。
+
+本次目标：
+增加轻量级剧情状态结构，让当前章节、场景、冲突、目标、可触发事件更清晰。但不要每轮额外调用剧情分析 API。
+
+非常重要：
+1. 不要增加每轮主聊天 API 调用次数。
+2. 不要每轮调用剧情分析。
+3. 不要替代现有 NPC 主动行为。
+4. 不要删除现有 EVENT_POOL。
+5. 不要减少短期上下文。
+6. 不要删除长期记忆。
+7. 不要修改角色人设文本。
+8. 不要大规模重构。
+9. 优先做本地结构和 prompt 注入，不要做复杂自动编剧系统。
+
+请重点查看：
+- bot/worlds/*.py
+- bot/npc_manager.py
+- bot/telegram_handlers.py
+- bot/memory_manager.py
+- bot/settings.py
+- Web 管理面板相关文件
+- EVENT_POOL、runtime_directive、dynamic_state、NPC 舞台指令相关代码
+
+请先分析：
+1. 当前世界观文件里是否已有 START_SCENE、EVENT_POOL、LOCATIONS、RULES？
+2. 当前剧情状态在哪里保存？
+3. 当前 runtime_directive 如何进入主聊天？
+4. NPC 主动事件如何触发？
+5. 是否已有 Web 管理页面可以控制剧情？
+6. 有没有地方适合保存当前 scene/chapter/state？
+
+然后做低风险优化：
+
+一、增加轻量剧情状态结构
+
+建议字段：
+
+- chapter：当前章节
+- scene：当前场景
+- location：当前地点
+- active_characters：当前在场角色
+- current_conflict：当前主要冲突
+- current_goal：当前剧情目标
+- pacing：节奏，例如 slow / normal / intense
+- allowed_events：当前允许触发的事件
+- forbidden_events：当前禁止触发的事件
+- last_major_event：最近重大事件
+- notes：导演备注
+
+如果不适合新建复杂模块，可以先用 JSON 文件或现有状态文件保存。
+不要强行改数据库。
+
+二、剧情状态进入 dynamic_state
+
+请在主聊天 prompt 的 dynamic_state 里加入简洁剧情状态，例如：
+
+[当前剧情状态]
+章节：家庭
+场景：A家中
+当前冲突：B在A家里缺乏安全感
+当前目标：让B适应环境并建立信任
+节奏：slow
+禁止事件：突然大战、突然失忆、强行跳转地点
+
+要求：
+1. 简短。
+2. 不要塞太长。
+3. 不要替代最近聊天记录。
+4. 不要减少长期记忆。
+5. 不要和 NPC 舞台指令冲突。
+
+三、不要每轮自动分析剧情
+
+请不要实现：
+每轮聊天后调用一次剧情分析 API。
+
+可接受的方式：
+- 用户手动触发剧情状态刷新
+- Web 面板手动编辑剧情状态
+- 每隔很多轮低频整理
+- 只有剧情摘要压缩时顺便更新
+- 暂时完全不调用 API，只允许本地编辑和 prompt 注入
+
+四、与 NPC 主动行为兼容
+
+请确保：
+1. NPC 主动事件仍然可以触发。
+2. EVENT_POOL 不被删除。
+3. 剧情状态里的 forbidden_events 可以作为 NPC 事件筛选参考。
+4. allowed_events 可以提高相关事件权重，但不要完全锁死剧情。
+5. 如果没有剧情状态文件，系统应正常运行。
+
+五、Web 导演台基础
+
+如果项目已有 Web 管理面板，请尽量增加或预留一个简单页面/接口，用于查看和编辑：
+- 当前章节
+- 当前场景
+- 当前冲突
+- 当前目标
+- 节奏
+- 禁止事件
+- 导演备注
+
+如果 Web 改动风险较大，可以先只做后端状态文件和日志，不强行做页面。
+
+六、日志
+
+增加剧情状态日志：
+- 当前剧情状态是否加载成功
+- 是否注入 dynamic_state
+- NPC 事件是否受到 allowed_events / forbidden_events 影响
+- 用户是否手动更新剧情状态
+- 是否调用了 API
+
+七、成本控制
+
+请明确确认：
+1. 本次修改是否增加每轮 API 调用？
+2. 是否新增剧情分析 API？
+3. 如果新增，触发条件是什么？
+4. 是否默认关闭自动剧情分析？
+5. 能否完全通过本地状态文件运行？
+
+八、测试
+
+修改后运行基础语法检查：
+
+python -m py_compile bot/telegram_handlers.py
+python -m py_compile bot/npc_manager.py
+
+如果新增文件，例如 bot/story_state.py，也运行：
+
+python -m py_compile bot/story_state.py
+
+如果修改了其他 Python 文件，也检查对应文件。
+
+最后请输出：
+1. 修改了哪些文件
+2. 新增剧情状态结构是什么
+3. 剧情状态保存在哪里
+4. 是否增加每轮 API 调用
+5. 剧情状态如何进入 dynamic_state
+6. 是否影响 NPC 主动行为
+7. Web 面板是否改动
+8. 如何关闭或忽略剧情状态
+9. 潜在风险
+
+核心原则：
+剧情状态机是“导演辅助”，不是“每轮自动编剧 API”。
+宁可功能简单，也不要增加成本和破坏角色自然发挥。

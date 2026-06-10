@@ -1,0 +1,71 @@
+请修复 Web 世界编辑器无法显示带类型标注字段的问题。
+
+问题现象：
+worldsone.py 中存在：
+
+CHARACTERS dict[str, str] = {
+    ...
+}
+
+但 Web 面板 worldsone 的“角色设定”区域为空。
+
+原因推测：
+webroutesworlds.py 的 _parse_world_py() 目前只处理 ast.Assign，没有处理 ast.AnnAssign。
+带类型标注的赋值，例如：
+
+CHARACTERS dict[str, str] = {...}
+RULES list[str] = [...]
+LOCATIONS dict[str, str] = {...}
+EVENT_POOL list[str] = [...]
+NPCS dict[str, dict] = {...}
+
+在 AST 中属于 ast.AnnAssign，所以被解析器跳过。
+
+修复目标：
+1. _parse_world_py() 同时支持 ast.Assign 和 ast.AnnAssign。
+2. _write_world_py() 也要能定位 ast.AnnAssign 的行号范围，否则表单保存时可能不会更新带类型标注的字段。
+3. 不要改变 worldsone.py 的人物设定文本。
+4. 不要删除类型标注。
+5. 不要改变聊天逻辑。
+6. 不要影响 bot 运行。
+7. 不要增加 API 调用。
+8. 不要大规模重构。
+
+建议实现方式：
+
+在 _parse_world_py() 中：
+- 对 ast.Assign 保持原逻辑。
+- 增加 ast.AnnAssign 处理：
+  - target 必须是 ast.Name
+  - name = target.id
+  - 如果 name 不以 _ 开头
+  - 使用 node.value 传给 _ast_value_to_form()
+  - 如果 node.value 为空则跳过
+
+在 _write_world_py() 中：
+- 当前只记录 ast.Assign 的 field_ranges。
+- 增加 ast.AnnAssign 处理：
+  - target 是 ast.Name
+  - 使用 node.lineno 和 node.end_lineno
+  - 加入 field_ranges
+
+注意：
+_format_field_assignment() 当前会把 CHARACTERS 输出成：
+CHARACTERS dict[str, str] = {...}
+所以修复后应保持类型标注风格。
+
+测试：
+1. 使用现有 worldsone.py 测试 _parse_world_py()。
+2. 确认 fields[CHARACTERS] 能得到类似：
+林栖 ...
+陈平 ...
+苏晚 ...
+3. 确认 RULES、LOCATIONS、EVENT_POOL、NPCS 不受影响。
+4. 运行 Python 语法检查。
+5. 确认 Web 表单模式能显示角色设定。
+
+最后请输出：
+- 修改了哪些文件
+- 是否支持 ast.AnnAssign
+- 是否修改 worlds 内容
+- 是否影响聊天逻辑
