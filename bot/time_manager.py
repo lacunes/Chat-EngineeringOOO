@@ -6,8 +6,6 @@
 
 import json
 import logging
-import os
-import tempfile
 import time as _time
 
 from config import prompts, settings
@@ -86,32 +84,16 @@ class TimeManager:
         self._atomic_write()
 
     def _atomic_write(self) -> None:
-        tmp = None
-        try:
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=str(self.file_path.parent),
-                prefix=".tmp_time_", suffix=".json",
-                delete=False, encoding="utf-8",
-            ) as f:
-                tmp = f.name
-                json.dump({
-                    "day": self.day,
-                    "time_period": self.time_period,
-                    "season": self.season,
-                    "last_advance_turn": self.last_advance_turn,
-                    "current_period_start_turn": self.current_period_start_turn,
-                    "last_advance_real_time": self.last_advance_real_time,
-                    "recent_days": self.recent_days,
-                }, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.file_path)
-        except Exception as exc:
-            logger.error("Failed to save time state: %s", exc)
-            if tmp:
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
+        from bot.safe_io import atomic_write_json
+        atomic_write_json(self.file_path, {
+            "day": self.day,
+            "time_period": self.time_period,
+            "season": self.season,
+            "last_advance_turn": self.last_advance_turn,
+            "current_period_start_turn": self.current_period_start_turn,
+            "last_advance_real_time": self.last_advance_real_time,
+            "recent_days": self.recent_days,
+        })
 
     # ═══════════════════════════════════════════════════════
     # 查询

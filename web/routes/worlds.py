@@ -167,10 +167,14 @@ def save_world(name: str):
     audit_log("编辑世界", f"表单模式保存 {name}.yaml")
     logger.info("Web panel: saved world YAML %s", name)
 
-    # 如果保存的是当前激活的世界，触发热重载
+    # 如果保存的是当前激活的世界，触发热重载并刷新 Bot 管理器
     ctx = _ctx()
     if name == ctx.world_manager.world_name:
         ctx.world_manager.reload_world()
+        try:
+            ctx.roleplay_bot.reload_world_managers()
+        except Exception as exc:
+            logger.warning("World save: failed to reload bot managers: %s", exc)
     return _flash_redirect(url_for("worlds.edit_world", name=name),
                            f"{name}.yaml 已保存")
 
@@ -194,10 +198,16 @@ def switch_world():
         return _flash_redirect(url_for("worlds.list_worlds"),
                                f"切换世界 '{new_world}' 失败", "error")
 
+    # 立即同步 Bot 内部管理器到新世界
+    try:
+        ctx.roleplay_bot.reload_world_managers()
+    except Exception as exc:
+        logger.warning("World switch: failed to reload managers: %s", exc)
+
     audit_log("切换世界", f"{new_world} (即时生效)")
     logger.info("Web panel: switched active world to %s (hot-reload)", new_world)
     return _flash_redirect(url_for("worlds.list_worlds"),
-                           f"已切换至 {new_world}，下次聊天立即生效")
+                           f"已切换至 {new_world}，立即生效")
 
 
 @worlds_bp.route("/create", methods=["POST"])

@@ -106,6 +106,7 @@ class MemoryManager:
         self._last_save_ok: bool = True
         self._last_save_time: str = ""
         self._was_recovered: bool = False
+        self._empty_protection_triggered: bool = False
 
         # 加载数据
         self.memory = self._load_json_list(self._chat_path, "short memory")
@@ -364,8 +365,13 @@ class MemoryManager:
 
     def _save(self, slot: str, path: Path, data, label: str, force: bool = False) -> None:
         """统一持久化入口，带空数据保护。"""
-        self._atomic_write(path, data, label, force)
-        self._last_save_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        result = self._atomic_write(path, data, label, force)
+        if result is False:
+            self._empty_protection_triggered = True
+            self._last_save_ok = False
+        else:
+            self._last_save_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._last_save_ok = True
 
     @staticmethod
     def _load_json_list(path: Path, label: str) -> list:
@@ -395,12 +401,17 @@ class MemoryManager:
         return []
 
     @staticmethod
-    def _atomic_write(path: Path, data, label: str, force: bool = False) -> None:
+    def _atomic_write(path: Path, data, label: str, force: bool = False) -> bool | None:
         """原子写入 + 自动备份 + 空数据保护。
 
         1. 如果 data 为空 list 且旧文件非空且 force=False → 拒绝覆盖，记录警告
         2. 备份旧文件到 backups/memory_时间戳.json
         3. 先写 .tmp，再 os.replace（原子操作）
+        
+        Returns:
+            True: 成功写入
+            False: 因空数据保护拒绝写入
+            None: 异常（写入失败）
         """
         # ── 空数据保护 ──
         if isinstance(data, list) and len(data) == 0 and not force:
@@ -413,7 +424,7 @@ class MemoryManager:
                             "Use force=True only for explicit user reset.",
                             path, old_size,
                         )
-                        return
+                        return False
                 except Exception:
                     pass
 
@@ -430,7 +441,10 @@ class MemoryManager:
             ) as file:
                 tmp = file.name
                 json.dump(data, file, ensure_ascii=False, indent=2)
+                file.flush()
+                os.fsync(file.fileno())
             os.replace(tmp, path)
+            return True
         except Exception as exc:
             logger.error("Failed to save %s: %s", label, exc)
             if tmp:
@@ -468,7 +482,7 @@ class MemoryManager:
 
         def file_info(p: Path) -> dict:
             if not p.exists():
-                return {"exists": False, "size": 0, "mtime": "-", "items": 0}
+                return {"exists": False, "size": 0, "mtime": "-", "items": 0, "path": str(p)}
             try:
                 st = p.stat()
                 data = json.loads(p.read_text(encoding="utf-8"))
@@ -478,9 +492,10 @@ class MemoryManager:
                     "size": st.st_size,
                     "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                     "items": items,
+                    "path": str(p),
                 }
             except Exception:
-                return {"exists": True, "size": 0, "mtime": "?", "items": 0, "corrupted": True}
+                return {"exists": True, "size": 0, "mtime": "?", "items": 0, "corrupted": True, "path": str(p)}
 
         return {
             "world": self.world_name,

@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import sys
 import threading
@@ -91,13 +92,63 @@ def validate_settings() -> None:
         missing.append("BOT_TOKEN")
     if not settings.ALLOWED_ID:
         missing.append("ALLOWED_ID")
-    # 至少需要一个可用的 API Key
-    has_api_key = bool(settings.DEEPSEEK_KEY or settings.DEEPSEEK_API_KEY
-                       or settings.ZHIPU_API_KEY or settings.OPENROUTER_API_KEY)
-    if not has_api_key:
-        missing.append("至少需要一个 API Key (DEEPSEEK_API_KEY / ZHIPU_API_KEY / OPENROUTER_API_KEY)")
+
+    # ── 动态读取 providers.yaml，检查是否至少有一个 enabled provider 的 API Key 有效 ──
+    providers_path = settings.BASE_DIR / "providers.yaml"
+    if not providers_path.exists():
+        missing.append("providers.yaml — 文件不存在")
+    else:
+        try:
+            import yaml as _yaml
+            raw = _yaml.safe_load(providers_path.read_text(encoding="utf-8"))
+            provider_list = raw.get("providers", []) if isinstance(raw, dict) else []
+        except Exception:
+            raise RuntimeError("providers.yaml 解析失败，请检查文件格式。")
+
+        enabled = [p for p in provider_list if p.get("enabled", False)]
+        if not enabled:
+            missing.append("providers.yaml — 没有任何 enabled: true 的 provider")
+
+        any_key_valid = False
+        detail_lines = []
+        for p in enabled:
+            name = p.get("name", "?")
+            env_var = p.get("api_key_env", "")
+            key_val = os.getenv(env_var, "").strip() if env_var else ""
+            has_key = bool(key_val)
+            if has_key:
+                any_key_valid = True
+            else:
+                detail_lines.append(f"  {name} → 需要 {env_var}（当前缺失）")
+
+        if not any_key_valid:
+            error_msg = "所有启用的 provider 均缺少 API Key：\n" + "\n".join(detail_lines)
+            error_msg += "\n请在 .env 中至少设置一个对应的 API Key。"
+            raise RuntimeError(error_msg)
+
+        # 兼容旧变量检查：仍提示但不报错
+        old_key_vars = []
+        if not settings.DEEPSEEK_API_KEY and not settings.DEEPSEEK_KEY:
+            old_key_vars.append("DEEPSEEK_API_KEY / DEEPSEEK_KEY")
+        if not settings.ZHIPU_API_KEY:
+            old_key_vars.append("ZHIPU_API_KEY")
+        if not settings.OPENROUTER_API_KEY:
+            old_key_vars.append("OPENROUTER_API_KEY")
+        if old_key_vars:
+            logging.getLogger(__name__).info(
+                "部分旧 API Key 变量未设置：%s — 如果有对应 provider 启用则需要配置",
+                ", ".join(old_key_vars),
+            )
+
     if missing:
         raise RuntimeError(f"Missing required settings in .env: {', '.join(missing)}")
+
+    # ── Web 安全：公网监听必须设密码 ──
+    if settings.WEB_HOST == "0.0.0.0" and not settings.WEB_PASSWORD:
+        raise RuntimeError(
+            "WEB_HOST=0.0.0.0 但未设置 WEB_PASSWORD。\n"
+            "公网监听时必须在 .env 中设置 WEB_PASSWORD 以保护管理面板。"
+        )
 
 
 # ── 命令注册表 ──
@@ -149,9 +200,28 @@ _SENSITIVE_FILTERS = [
 def _filter_sensitive(text: str) -> str:
     for pattern, replacement in _SENSITIVE_FILTERS:
         text = pattern.sub(replacement, text)
-    # 额外：显式过滤 .env 中的敏感值
-    for secret in [settings.BOT_TOKEN, settings.DEEPSEEK_KEY, settings.DEEPSEEK_API_KEY,
-                   settings.ZHIPU_API_KEY, settings.OPENROUTER_API_KEY, settings.WEB_PASSWORD]:
+    # 显式过滤 .env 中的敏感值
+    secrets_to_filter = [settings.BOT_TOKEN, settings.WEB_PASSWORD]
+    # 动态读取 providers.yaml 中的 API Key 值
+    try:
+        import yaml as _yaml
+        providers_path = settings.BASE_DIR / "providers.yaml"
+        if providers_path.exists():
+            raw = _yaml.safe_load(providers_path.read_text(encoding="utf-8"))
+            for p in raw.get("providers", []):
+                env_var = p.get("api_key_env", "")
+                if env_var:
+                    val = os.getenv(env_var, "").strip()
+                    if val:
+                        secrets_to_filter.append(val)
+    except Exception:
+        pass
+    # 兼容旧变量
+    for key_name in ["DEEPSEEK_KEY", "DEEPSEEK_API_KEY", "ZHIPU_API_KEY", "OPENROUTER_API_KEY"]:
+        val = os.getenv(key_name, "").strip()
+        if val:
+            secrets_to_filter.append(val)
+    for secret in secrets_to_filter:
         if secret and len(secret) > 4:
             text = text.replace(secret, "***")
     return text

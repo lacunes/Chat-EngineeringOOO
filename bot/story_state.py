@@ -6,7 +6,6 @@
 
 import json
 import logging
-import tempfile
 from pathlib import Path
 
 logger = logging.getLogger("bot.story")
@@ -56,24 +55,8 @@ class StoryStateManager:
             logger.error("Failed to load story state: %s", exc)
 
     def save(self) -> None:
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=str(self.file_path.parent),
-                prefix=".tmp_story_", suffix=".json",
-                delete=False, encoding="utf-8",
-            ) as f:
-                tmp = f.name
-                json.dump(self.state, f, ensure_ascii=False, indent=2)
-            Path(tmp).replace(self.file_path)
-        except Exception as exc:
-            logger.error("Failed to save story state: %s", exc)
-            if tmp:
-                try:
-                    Path(tmp).unlink()
-                except Exception:
-                    pass
+        from bot.safe_io import atomic_write_json
+        atomic_write_json(self.file_path, self.state)
 
     def update(self, updates: dict) -> None:
         """批量更新状态字段。只接受已知字段。"""

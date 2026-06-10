@@ -67,7 +67,19 @@ class RoleplayBot:
         if current_name != self.world.WORLD_NAME:
             logger.info("World changed from %s to %s, reinitializing managers...",
                        self.world.WORLD_NAME, current_name)
-            self._init_managers()
+            self.reload_world_managers()
+
+    def reload_world_managers(self) -> None:
+        """重新加载当前 active_world 并刷新所有世界相关管理器。
+
+        Web 切换世界后应立即调用此方法，使 Telegram Bot 和 Web 面板
+        立即同步到新世界，无需等下一轮聊天。
+        """
+        # 强制 WorldManager 重载当前世界
+        self.world_manager.reload_world()
+        logger.info("reload_world_managers: reinitializing all managers for world '%s'",
+                   self.world_manager.world_name)
+        self._init_managers()
 
     def is_authorized(self, update: Update) -> bool:
         return bool(update.effective_user and update.effective_user.id == settings.ALLOWED_ID)
@@ -93,30 +105,87 @@ class RoleplayBot:
 
     @require_auth
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        # 获取当前活跃的 provider 信息
-        provider_info = "N/A"
+        # ── Router 状态 ──
+        router_lines = []
         if self.client.router:
-            providers = self.client.router.get_provider_list()
-            active = [p for p in providers if p.get("enabled") and p.get("has_api_key")]
-            if active:
-                provider_info = f"{active[0]['name']} ({active[0]['model']})"
+            state = self.client.router._state
+            mode = state.get("mode", "auto")
+            manual = state.get("manual_provider")
+            router_lines.append(f"模式：{'🔧 手动' if mode == 'manual' else '🔄 自动'}")
+            if manual:
+                router_lines.append(f"手动优先：{manual}")
 
-        await update.message.reply_text(
-            f"当前状态：\n"
-            f"当前世界：{self.world.WORLD_NAME}\n"
-            f"模型供应商：{provider_info}\n"
-            f"短期记忆条数：{self.memory.message_count}\n"
-            f"长期记忆条数：{self.memory.long_memory_count}\n"
-            f"短期记忆文件：memory/{self.world.WORLD_NAME}_memory.json\n"
-            f"长期记忆文件：memory/{self.world.WORLD_NAME}_world_memory.json\n"
-            f"上下文条数：{settings.CONTEXT_LENGTH}\n"
-            f"长期记忆注入条数：{settings.LONG_MEMORY_CONTEXT_LIMIT}\n"
-            f"自动长期记忆间隔：{settings.AUTO_MEMORY_INTERVAL} 条消息\n"
-            f"回复长度：{settings.MIN_REPLY_TOKENS}~{settings.MAX_REPLY_TOKENS}\n"
-            f"分段阈值：{settings.SPLIT_THRESHOLD} 字符\n"
-            f"续写上限：/c {settings.CONTINUE_LIMIT}\n"
-            f"\n{self.npc_manager.get_status_text()}"
-        )
+            # 最近调用历史
+            history = self.client.router.get_call_history()
+            last_success = None
+            for call in reversed(history):
+                if call.get("success"):
+                    last_success = call
+                    break
+            if last_success:
+                router_lines.append(
+                    f"最近成功：{last_success.get('provider','?')} / {last_success.get('model','?')}"
+                    f" ({last_success.get('latency_ms',0)}ms, finish={last_success.get('finish_reason','?')})"
+                )
+
+            # Fallback 信息
+            last_ft = state.get("last_fallback_time")
+            last_fr = state.get("last_fallback_reason")
+            if last_ft:
+                router_lines.append(f"最近 fallback：{last_ft} — {last_fr}")
+
+            # 问题 provider
+            providers = self.client.router.get_provider_list()
+            for p in providers:
+                issues = []
+                if p.get("exhausted"):
+                    issues.append(f"🚫{p.get('last_error_type','exhausted')}")
+                elif p.get("cooldown_remaining", 0) > 0:
+                    issues.append(f"⏳冷却{p['cooldown_remaining']}s")
+                if issues:
+                    router_lines.append(f"  {p['name']}：{' '.join(issues)}")
+        else:
+            router_lines.append("路由器未初始化")
+
+        # ── 记忆状态 ──
+        mem_status = self.memory.get_memory_status()
+        memory_info = []
+        memory_info.append(f"文件：{mem_status['chat'].get('path', '?')}")
+        memory_info.append(f"对话：{mem_status['chat']['items']} 条")
+        memory_info.append(f"长期：{mem_status['long_term']['items']} 条")
+        memory_info.append(f"保存：{mem_status['last_save_time']} {'✅' if mem_status['last_save_ok'] else '❌'}")
+        if mem_status['was_recovered']:
+            memory_info.append("⚠️曾从旧路径恢复")
+
+        # ── 候选 provider 列表 ──
+        candidates_str = ""
+        if self.client.router:
+            candidates = self.client.router._select_candidates("chat")
+            if candidates:
+                candidates_str = f"候选：{' → '.join(candidates[:5])}"
+
+        lines = [
+            f"📊 状态",
+            f"世界：{self.world.WORLD_NAME}",
+            f"",
+            f"🔌 Router：",
+        ] + [f"  {l}" for l in router_lines] + [
+            f"",
+            f"🧠 记忆：",
+        ] + [f"  {l}" for l in memory_info] + [
+            f"  Token：{settings.MIN_REPLY_TOKENS}~{settings.MAX_REPLY_TOKENS} / 分段>{settings.SPLIT_THRESHOLD}",
+            f"  上下文：{settings.CONTEXT_LENGTH}条 / 长期注入{settings.LONG_MEMORY_CONTEXT_LIMIT}条",
+            f"  续写上限：/c {settings.CONTINUE_LIMIT}",
+        ]
+        if candidates_str:
+            lines.append(f"")
+            lines.append(f"📋 {candidates_str}")
+        lines += [
+            f"",
+            f"{self.npc_manager.get_status_text()}",
+        ]
+
+        await update.message.reply_text("\n".join(lines))
 
     @require_auth
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -399,12 +468,15 @@ class RoleplayBot:
         async def _run():
             self._bg_maintenance_running = True
             try:
+                # ── 快照：复制当前记忆，避免并发读写冲突 ──
+                memory_snapshot = list(self.memory.memory)
+
                 did_compress = await self.memory.compress_old_memory(self.client)
                 # 压缩已包含摘要+精炼，跳过冗余的长期记忆抽取
                 if not did_compress:
                     await self.memory.auto_extract_long_memory(self.client)
                 await self.relationship_manager.auto_extract(
-                    self.memory.memory, self.client,
+                    memory_snapshot, self.client,
                 )
             except Exception as exc:
                 logger.warning("Background maintenance failed: %s", exc)

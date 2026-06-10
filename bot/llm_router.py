@@ -109,15 +109,11 @@ def _default_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    """保存运行时状态到文件。写失败不应导致崩溃。"""
+    """原子保存运行时状态到 data/provider_state.json。"""
     path = _provider_state_path()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with _state_lock:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(state, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning("Failed to save provider_state.json: %s", e)
+    from bot.safe_io import atomic_write_json
+    with _state_lock:
+        atomic_write_json(path, state)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -137,41 +133,95 @@ def _log_llm_usage(entry: dict) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
-# 错误分类
+# 错误分类（v2 — 6 种明确类型）
 # ═══════════════════════════════════════════════════════════════
 
-# 余额/额度耗尽类错误关键词
+# 余额/额度耗尽
 _QUOTA_EXHAUSTED_KEYWORDS = [
+    "balance is insufficient",
+    "your account balance is insufficient",
+    "insufficient balance",
+    "account balance is insufficient",
     "insufficient_quota", "insufficient quota",
     "quota_exceeded", "quota exceeded",
     "余额不足", "额度耗尽", "额度不足",
-    "account balance", "account balance insufficient",
-    "billing", "out of credits", "credits exhausted",
+    "out of credits", "credits exhausted",
     "resource exhausted", "exceeded your current quota",
     "free quota", "free trial", "trial ended",
+    "billing",
 ]
 
-# 可重试的错误
+# 限流
+_RATE_LIMIT_KEYWORDS = [
+    "rate limit", "too many requests",
+    "rpm", "tpm",
+]
+
+# 服务临时不可用
+_UNAVAILABLE_KEYWORDS = [
+    "service unavailable",
+    "bad gateway",
+    "gateway timeout",
+    "upstream error",
+]
+
+# 免费通道无可用线路
+_NO_CHANNEL_KEYWORDS = [
+    "no available channel",
+    "under group free",
+    "no channel",
+]
+
+# 模型名错误
+_MODEL_NOT_FOUND_KEYWORDS = [
+    "model_not_found",
+    "model does not exist",
+    "unknown model",
+    "model not found",
+]
+
+# Key/权限错误
+_AUTH_ERROR_KEYWORDS = [
+    "invalid api key",
+    "permission denied",
+    "unauthorized",
+    "forbidden",
+]
+
+# 可重试的 HTTP 状态码
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
-def _is_quota_exhausted(error_text: str) -> bool:
-    """判断错误是否是额度耗尽/余额不足类（永久跳过）。"""
-    lower = error_text.lower()
-    return any(kw in lower for kw in _QUOTA_EXHAUSTED_KEYWORDS)
+def _is_quota_exhausted(text: str) -> bool:
+    """检查错误文本是否匹配余额/额度耗尽关键词。"""
+    return any(kw in text for kw in _QUOTA_EXHAUSTED_KEYWORDS)
 
 
 def _classify_error(exc: Exception) -> tuple[str, bool]:
     """
     分类错误类型，返回 (error_type, is_retryable)。
-    error_type: timeout / http_xxx / connection / empty_reply / format_error / quota_exhausted / unknown
+
+    error_type:
+        quota_exhausted  — 余额/额度耗尽，应永久跳过
+        rate_limited     — 限流，冷却 30-120 秒
+        unavailable      — 服务临时不可用，冷却 60-300 秒
+        no_channel       — 免费通道不可用，冷却 10-30 分钟
+        model_not_found  — 模型不存在/配置错误
+        auth_error       — Key/权限错误，长期跳过
+        http_{code}      — 未分类的 HTTP 状态码
+        timeout          — 请求超时
+        connection       — 连接失败
+        format_error     — 回复格式错误
+        empty_reply      — 返回空回复
+        unknown          — 未知错误
     """
     if isinstance(exc, asyncio.TimeoutError):
-        return ("timeout", False)  # 超时在同 provider 内已处理，此处表示整体超时
+        return ("timeout", False)
     if isinstance(exc, requests.exceptions.Timeout):
         return ("timeout", True)
     if isinstance(exc, requests.exceptions.ConnectionError):
         return ("connection", True)
+
     if isinstance(exc, requests.exceptions.HTTPError):
         status = exc.response.status_code if exc.response is not None else 0
         error_body = ""
@@ -179,13 +229,45 @@ def _classify_error(exc: Exception) -> tuple[str, bool]:
             error_body = exc.response.text if exc.response is not None else ""
         except Exception:
             pass
-        if _is_quota_exhausted(error_body):
+        lower = error_body.lower()
+
+        # 1. 余额/额度耗尽 (403 + balance insufficient 等)
+        if _is_quota_exhausted(lower):
             return ("quota_exhausted", False)
+
+        # 2. 限流 (429)
+        if status == 429 or any(kw in lower for kw in _RATE_LIMIT_KEYWORDS):
+            return ("rate_limited", True)
+
+        # 3. Key/权限错误 (401/403 + auth keywords)
+        if status in (401, 403) and any(kw in lower for kw in _AUTH_ERROR_KEYWORDS):
+            return ("auth_error", False)
+
+        # 4. 模型不存在
+        if any(kw in lower for kw in _MODEL_NOT_FOUND_KEYWORDS):
+            return ("model_not_found", False)
+
+        # 5. 免费通道不可用
+        if any(kw in lower for kw in _NO_CHANNEL_KEYWORDS):
+            return ("no_channel", False)
+
+        # 6. 服务临时不可用 (5xx)
         if status in _RETRYABLE_STATUS_CODES:
+            if any(kw in lower for kw in _UNAVAILABLE_KEYWORDS):
+                return ("unavailable", True)
             return (f"http_{status}", True)
+
         return (f"http_{status}", False)
-    if isinstance(exc, (ValueError, KeyError, TypeError)):
+
+    # 非 HTTP 异常
+    if isinstance(exc, ValueError):
+        error_msg = str(exc).lower()
+        if "空回复" in error_msg or "empty" in error_msg or "空 choices" in error_msg:
+            return ("empty_reply", False)
         return ("format_error", False)
+    if isinstance(exc, (KeyError, TypeError)):
+        return ("format_error", False)
+
     return ("unknown", False)
 
 
@@ -309,6 +391,7 @@ class LLMRouter:
                     "exhausted": False,
                     "last_failure_reason": None,
                     "last_failure_time": None,
+                    "last_error_type": None,
                 }
 
         # 清理 YAML 中已不存在的 provider 状态
@@ -349,42 +432,100 @@ class LLMRouter:
             "last_failure_time": None,
         })
 
-    def _record_failure(self, name: str, error_type: str, error_message: str) -> bool:
+    def _record_failure(self, name: str, error_type: str, error_message: str) -> str:
         """
-        记录一次失败。返回 True 如果该 provider 应被标记为 exhausted。
+        记录一次失败。返回处理方式标记：
+            "exhausted" — 永久跳过
+            "cooldown"  — 进入冷却
+            "recorded"  — 仅记录计数
+
+        根据错误类型设置不同的冷却时间：
+            rate_limited  → 60-120s
+            unavailable   → 120-300s
+            no_channel    → 600-1800s (10-30分钟)
+            其他连续失败   → 配置的 cooldown_seconds (默认300s)
         """
         now_ts = time.time()
         state = self._get_provider_state(name)
+
+        # ── 永久跳过类型 ──
+        if error_type in ("auth_error", "model_not_found"):
+            self._update_provider_state(name, {
+                "exhausted": True,
+                "consecutive_failures": 0,
+                "cooldown_until": None,
+                "last_failure_reason": f"[{error_type}] {error_message[:200]}",
+                "last_failure_time": datetime.now(timezone.utc).isoformat(),
+                "last_error_type": error_type,
+            })
+            label = {"auth_error": "Key/权限错误", "model_not_found": "模型不存在"}.get(error_type, error_type)
+            self._notify_admin(f"⚠️ {name} {label}，已永久跳过。请在 Web 面板手动清除状态。")
+            return "exhausted"
+
+        # quota_exhausted：检查 disable_on_quota_exhausted 配置
+        if error_type == "quota_exhausted":
+            disable_flag = self._get_provider_config(name, "disable_on_quota_exhausted", True)
+            if disable_flag:
+                self._update_provider_state(name, {
+                    "exhausted": True,
+                    "consecutive_failures": 0,
+                    "cooldown_until": None,
+                    "last_failure_reason": f"[{error_type}] {error_message[:200]}",
+                    "last_failure_time": datetime.now(timezone.utc).isoformat(),
+                    "last_error_type": error_type,
+                })
+                self._notify_admin(f"⚠️ {name} 额度耗尽，已永久跳过。请在 Web 面板手动清除状态。")
+                return "exhausted"
+            # disable_on_quota_exhausted=false：按普通失败冷却处理
+
+        # ── 冷却类型（连续失败或特定错误）──
         failures = state.get("consecutive_failures", 0) + 1
 
-        is_exhausted = False
-        if error_type == "quota_exhausted":
-            is_exhausted = True
-            # 通知管理员
-            self._notify_admin(
-                f"⚠️ {name} 额度耗尽，已永久跳过，直到手动 /provider enable {name}。"
-            )
-        elif failures >= self._get_provider_config(name, "max_consecutive_failures", 3):
-            # 进入冷却
+        # 根据错误类型确定冷却时间
+        if error_type == "rate_limited":
+            cooldown_sec = 90  # 30-120s 中点
+        elif error_type == "unavailable":
+            cooldown_sec = 180  # 120-300s 中点
+        elif error_type == "no_channel":
+            cooldown_sec = 900  # 10-30分钟中点
+        else:
             cooldown_sec = self._get_provider_config(name, "cooldown_seconds", 300)
+
+        max_fail = self._get_provider_config(name, "max_consecutive_failures", 3)
+
+        # 特定类型立即冷却，否则累积到阈值
+        if error_type in ("rate_limited", "unavailable", "no_channel"):
             cooldown_until = now_ts + cooldown_sec
             self._update_provider_state(name, {
                 "consecutive_failures": failures,
                 "cooldown_until": cooldown_until,
-                "last_failure_reason": error_message[:200],
+                "last_failure_reason": f"[{error_type}] {error_message[:200]}",
                 "last_failure_time": datetime.now(timezone.utc).isoformat(),
+                "last_error_type": error_type,
             })
-            self._notify_admin(
-                f"⚠️ {name} 连续失败 {failures} 次，已进入冷却 {cooldown_sec} 秒。"
-            )
-            return is_exhausted
+            reason_map = {"rate_limited": "限流", "unavailable": "服务临时不可用", "no_channel": "免费通道不可用"}
+            self._notify_admin(f"⚠️ {name} {reason_map.get(error_type, error_type)}，冷却 {cooldown_sec} 秒。")
+            return "cooldown"
+
+        if failures >= max_fail:
+            cooldown_until = now_ts + cooldown_sec
+            self._update_provider_state(name, {
+                "consecutive_failures": failures,
+                "cooldown_until": cooldown_until,
+                "last_failure_reason": f"[{error_type}] {error_message[:200]}",
+                "last_failure_time": datetime.now(timezone.utc).isoformat(),
+                "last_error_type": error_type,
+            })
+            self._notify_admin(f"⚠️ {name} 连续失败 {failures} 次，冷却 {cooldown_sec} 秒。")
+            return "cooldown"
 
         self._update_provider_state(name, {
             "consecutive_failures": failures,
-            "last_failure_reason": error_message[:200],
+            "last_failure_reason": f"[{error_type}] {error_message[:200]}",
             "last_failure_time": datetime.now(timezone.utc).isoformat(),
+            "last_error_type": error_type,
         })
-        return is_exhausted
+        return "recorded"
 
     def _mark_exhausted(self, name: str) -> None:
         """标记 provider 为额度耗尽（永久跳过）。"""
@@ -524,7 +665,7 @@ class LLMRouter:
         return True
 
     def _set_config_enabled(self, name: str, enabled: bool) -> None:
-        """修改 providers.yaml 中某个 provider 的 enabled 字段。"""
+        """修改 providers.yaml 中某个 provider 的 enabled 字段（原子写入）。"""
         path = _providers_yaml_path()
         if not path.exists():
             return
@@ -537,10 +678,9 @@ class LLMRouter:
                 if p.get("name") == name:
                     p["enabled"] = enabled
                     break
-            # 自动备份
-            _backup_providers_yaml(path)
-            with open(path, "w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            # 原子写入（自动备份 + tmp + fsync + 校验 + replace）
+            from bot.safe_io import atomic_write_yaml
+            atomic_write_yaml(path, data)
             # 立即重载
             self._reload_providers()
             self._load_and_merge_state()
@@ -548,17 +688,14 @@ class LLMRouter:
             logger.warning("Failed to update providers.yaml for %s: %s", name, e)
 
     def save_providers_config(self, providers_list: list[dict]) -> bool:
-        """用新配置覆盖 providers.yaml（带备份）。返回是否成功。"""
+        """用新配置覆盖 providers.yaml（原子写入，带备份+校验）。返回是否成功。"""
         path = _providers_yaml_path()
         if not path.exists():
             return False
         try:
             data = {"providers": providers_list}
-            # 备份
-            _backup_providers_yaml(path)
-            # 写入
-            with open(path, "w", encoding="utf-8") as f:
-                yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            from bot.safe_io import atomic_write_yaml
+            atomic_write_yaml(path, data)
             # 立即重载
             self._reload_providers()
             self._load_and_merge_state()
@@ -703,16 +840,22 @@ class LLMRouter:
                     error_type, is_retryable = _classify_error(exc)
                     error_message = str(exc)[:200]
 
-                    if error_type == "quota_exhausted":
-                        # 额度耗尽，不重试，直接标记 exhausted
-                        self._mark_exhausted(p_name)
+                    # 永久跳过类型：不重试
+                    if error_type in ("quota_exhausted", "auth_error", "model_not_found"):
                         logger.warning(
-                            "Provider %s quota exhausted: %s", p_name, error_message,
+                            "Provider %s %s: %s", p_name, error_type, error_message,
                         )
                         break
 
+                    # 免费通道不可用：不重试该 provider，直接 fallback
+                    if error_type == "no_channel":
+                        logger.warning(
+                            "Provider %s no_channel: %s", p_name, error_message,
+                        )
+                        break
+
+                    # 不可重试的错误
                     if not is_retryable:
-                        # 不可重试的错误（如格式错误、4xx 非 429），直接跳出该 provider
                         logger.warning(
                             "Provider %s non-retryable error: %s — %s",
                             p_name, error_type, error_message,
@@ -763,10 +906,8 @@ class LLMRouter:
 
             # 失败：记录状态
             logger.info("[LLMRouter] 开始记录 provider state: %s (failure type=%s)", p_name, error_type)
-            is_exhausted = self._record_failure(p_name, error_type, error_message)
-            logger.info("[LLMRouter] state 保存完成: %s exhausted=%s", p_name, is_exhausted)
-            if is_exhausted and not provider_state.get("exhausted"):
-                self._mark_exhausted(p_name)
+            result = self._record_failure(p_name, error_type, error_message)
+            logger.info("[LLMRouter] state 保存完成: %s result=%s", p_name, result)
 
         # ── 所有 provider 都失败了 ──
         log_entry = {
@@ -1039,5 +1180,6 @@ class LLMRouter:
                 "exhausted": st.get("exhausted", False),
                 "last_failure_reason": st.get("last_failure_reason"),
                 "last_failure_time": st.get("last_failure_time"),
+                "last_error_type": st.get("last_error_type"),
             })
         return result

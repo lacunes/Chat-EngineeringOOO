@@ -6,9 +6,7 @@
 
 import json
 import logging
-import os
 import re
-import tempfile
 
 from config import prompts, settings
 
@@ -64,28 +62,12 @@ class RelationshipManager:
         self._atomic_write()
 
     def _atomic_write(self) -> None:
-        tmp = None
-        try:
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=str(self.file_path.parent),
-                prefix=".tmp_rel_", suffix=".json",
-                delete=False, encoding="utf-8",
-            ) as f:
-                tmp = f.name
-                json.dump({
-                    "characters": self.characters,
-                    "relations": self.relations,
-                    "_reply_count_since_extract": self._reply_count_since_extract,
-                }, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.file_path)
-        except Exception as exc:
-            logger.error("Failed to save relationships: %s", exc)
-            if tmp:
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
+        from bot.safe_io import atomic_write_json
+        atomic_write_json(self.file_path, {
+            "characters": self.characters,
+            "relations": self.relations,
+            "_reply_count_since_extract": self._reply_count_since_extract,
+        })
 
     # ═══════════════════════════════════════════════════════
     # 查询

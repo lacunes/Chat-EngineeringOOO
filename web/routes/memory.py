@@ -18,15 +18,39 @@ memory_bp = Blueprint("memory", __name__, url_prefix="/memory")
 @memory_bp.route("/")
 @login_required
 def short_memory():
-    """短期记忆 + 长期记忆合并页面。"""
+    """短期记忆 + 长期记忆合并页面（含诊断信息）。"""
     ctx = _ctx()
     recent = ctx.memory.memory[-120:]
+    mem_status = ctx.memory.get_memory_status()
+
+    # 回复长度参数
+    reply_params = {
+        "MIN_REPLY_TOKENS": settings.MIN_REPLY_TOKENS,
+        "MID_REPLY_TOKENS": settings.MID_REPLY_TOKENS,
+        "MAX_REPLY_TOKENS": settings.MAX_REPLY_TOKENS,
+        "SPLIT_THRESHOLD": settings.SPLIT_THRESHOLD,
+    }
+
+    # 最近一次 LLM 调用
+    last_call = None
+    if ctx.client.router:
+        history = ctx.client.router.get_call_history()
+        if history:
+            last_call = history[-1]
+
+    # 空数据保护触发状态
+    empty_protection_triggered = getattr(ctx.memory, '_empty_protection_triggered', False)
+
     return render_template(
         "memory.html",
         short_messages=recent,
         short_count=ctx.memory.message_count,
         long_items=ctx.memory.long_memory,
         long_count=ctx.memory.long_memory_count,
+        mem_status=mem_status,
+        reply_params=reply_params,
+        last_call=last_call,
+        empty_protection_triggered=empty_protection_triggered,
         ctx=ctx,
     )
 

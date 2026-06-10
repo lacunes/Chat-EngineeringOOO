@@ -1,6 +1,6 @@
 # Telegram AI Roleplay Framework
 
-一个基于 Telegram + DeepSeek 的长期记忆角色扮演框架。
+Telegram Bot + Web 控制台 + Multi-provider LLM Router + WorldManager + MemoryManager
 
 项目目标：
 
@@ -12,37 +12,57 @@
 # ✨ 特性
 
 * Telegram 私聊角色扮演
-* DeepSeek API 驱动
+* **多模型供应商路由**（LLM Router：自动选择 + fallback + 冷却）
 * 单用户授权
-* 多世界切换
-* 短期记忆
-* 长期记忆
-* 自动记忆提取
-* 历史对话摘要压缩
+* **Web 热切换世界**（无需重启 main.py）
+* 短期记忆 + 长期记忆
+* 自动记忆提取与压缩
+* 历史对话摘要
 * 自动续写
 * 长回复自动分段
 * NPC主动行为系统
-* Web 管理面板
+* Web 管理面板（导演台）
+* 关系网络系统（6 维度）
+* 时间流逝系统（用户驱动）
+* 剧情节奏控制
+* 记忆污染检查
 * GitHub 版本管理
-* VPS 快速迁移
 
 ---
 
 # 🏗 架构设计
 
 ```text
-用户 ──→ Telegram ──→ telegram_handlers.py ──→ deepseek_client.py ──→ DeepSeek API
- │                         │                                              │
- │                    npc_manager.py                                      │
- │                    (NPC主动行为)                                        │
- │                         │                                              │
- │                    memory_manager.py ←─────────────────────────────────┘
- │                         │
- │                    ┌────┴────┐
- │                    │         │
+用户 ──→ Telegram ──→ telegram_handlers.py ──→ DeepSeekClient ──→ LLMRouter
+ │                         │                         │                │
+ │                    npc_manager.py                  │          providers.yaml
+ │                    (NPC主动行为)                    │          provider_state.json
+ │                         │                         │                │
+ │                    memory_manager.py ←─────────────┘          多供应商 API
+ │                         │                                   (智谱/DeepSeek/
+ │                    ┌────┴────┐                              OpenRouter/VSLLM/
+ │                    │         │                              MiniMax/Kimi...)
  │                 短期记忆  长期记忆
  │
- └──────────────── data/worlds/*.yaml (世界观/NPC/规则)
+ ├── Web 管理面板 ──→ WorldManager ──→ data/worlds/*.yaml
+ │                         │
+ │                    runtime_state.json
+ │
+ └──────────────── 各管理器边界清晰，互不越界
+```
+
+**模块边界：**
+
+```text
+LLMRouter     ：只管模型选择、fallback、provider 状态。
+WorldManager  ：只管 active_world、世界文件热加载。
+MemoryManager ：只管短期记忆、长期记忆、摘要和安全持久化。
+Web Panel     ：只管展示和调用管理接口。
+Telegram Bot  ：只管聊天入口和用户命令。
+
+runtime_state.json  ：只保存运行时选择（active_world, provider_mode, manual_provider）。
+provider_state.json ：只保存 provider 失败、冷却、耗尽、最近错误。
+memory/session 文件 ：只保存聊天上下文和记忆。
 ```
 
 ---
@@ -51,187 +71,174 @@
 
 ```text
 project/
-├── main.py
+├── main.py                     # 入口
 │
 ├── bot/
-│   ├── telegram_handlers.py
-│   ├── deepseek_client.py
-│   ├── memory_manager.py
-│   ├── npc_manager.py
-│   └── utils.py
+│   ├── telegram_handlers.py    # Telegram 命令与消息处理
+│   ├── deepseek_client.py      # LLM 调用兼容层（内部转发到 LLMRouter）
+│   ├── llm_router.py           # 多供应商路由器
+│   ├── memory_manager.py       # 记忆管理
+│   ├── world_manager.py        # 世界数据热加载与切换
+│   ├── relationship_manager.py # 关系网络
+│   ├── time_manager.py         # 时间流逝
+│   ├── npc_manager.py          # NPC 主动行为
+│   ├── story_state.py          # 剧情状态管理
+│   ├── safe_io.py              # 原子写入与备份工具
+│   └── utils.py                # 工具函数
 │
 ├── config/
-│   ├── settings.py
-│   └── prompts.py
+│   ├── settings.py             # 运行时配置（从 .env 读取）
+│   └── prompts.py              # 系统提示词模板
 │
 ├── web/
-│   ├── app.py                   # Flask 工厂 + 安全配置
+│   ├── app.py                  # Flask 工厂 + 安全配置
 │   ├── routes/
-│   │   ├── auth.py              # 登录/登出/session
-│   │   ├── dashboard.py         # 仪表盘
-│   │   ├── config_center.py     # 配置中心
-│   │   ├── worlds.py            # 世界编辑器
-│   │   ├── memory.py            # 记忆管理
-│   │   ├── memory_audit.py      # 记忆污染检查
-│   │   ├── relations.py         # 关系网络
-│   │   ├── time_routes.py       # 时间与节奏
-│   │   ├── providers.py         # 模型供应商管理
-│   │   └── logs.py              # 日志查看
-│   ├── templates/               # Jinja2 模板
+│   │   ├── auth.py             # 登录/登出
+│   │   ├── dashboard.py        # 仪表盘
+│   │   ├── config_center.py    # 配置中心
+│   │   ├── worlds.py           # 世界编辑器
+│   │   ├── memory.py           # 记忆管理
+│   │   ├── memory_audit.py     # 记忆污染检查
+│   │   ├── relations.py        # 关系网络
+│   │   ├── time_routes.py      # 时间与节奏
+│   │   ├── providers.py        # 模型供应商管理
+│   │   └── logs.py             # 日志查看
+│   ├── templates/              # Jinja2 模板
 │   └── static/
-│       ├── css/app.css          # 深色主题样式
-│       └── js/app.js            # 前端交互
 │
 ├── data/
-│   ├── worlds/                  # 世界数据（YAML 格式）
-│   │   ├── one.yaml
-│   │   ├── two.yaml
-│   │   └── three.yaml
-│   ├── runtime_state.json       # 运行时状态（active_world 等）
-│   └── provider_state.json      # 模型供应商运行时状态
+│   ├── worlds/                 # 世界数据（YAML 格式）
+│   ├── sessions/               # 短期记忆（{world}_chat.json）
+│   ├── memory/                 # 长期记忆 + 摘要（{world}_long_term.json 等）
+│   ├── runtime_state.json      # 运行时状态
+│   └── provider_state.json     # 模型供应商运行时状态
 │
-├── memory/
-│
+├── providers.yaml              # 多模型供应商配置
+├── backups/                    # 自动备份目录
+├── logs/                       # 日志目录
 ├── requirements.txt
-├── .gitignore
 ├── .env.example
 └── README.md
 ```
 
 ---
 
-# 🌍 世界观系统
+# 🔌 多模型供应商系统 (LLM Router)
 
-所有世界数据存储在：
+项目使用 `LLMRouter` 管理多个 LLM 供应商，支持自动选择和故障切换。
 
-```text
-data/worlds/
-├── one.yaml
-├── two.yaml
-└── three.yaml
+## providers.yaml 配置
+
+```yaml
+providers:
+  - name: zhipu_glm_air
+    enabled: true
+    priority: 1
+    task_types: ["chat", "memory", "summary", "relation", "background"]
+    api_key_env: "ZHIPU_API_KEY"
+    base_url: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    model: "glm-4.5-air"
+    timeout_chat_seconds: 60
+    timeout_background_seconds: 30
+    max_retries: 1
+    cooldown_seconds: 300
+    max_consecutive_failures: 3
+    disable_on_quota_exhausted: true
+    thinking_enabled: false
 ```
 
-每个世界都拥有自己的：
+每个 provider 通过 `api_key_env` 指定环境变量名（在 `.env` 中配置对应的 API Key）。支持任意兼容 OpenAI Chat Completions 格式的 API。
 
-* WORLD_NAME
-* SYSTEM_PROMPT
-* START_SCENE
-* CHARACTERS
-* RULES
-* LOCATIONS
-* EVENT_POOL
-* NPCS
+## Web Provider 管理页
+
+访问 Web 面板 → 模型管理，可以：
+- 查看所有 provider 状态（启用/冷却/耗尽/Key 状态）
+- 切换自动/手动模式
+- 启用/禁用 provider
+- 测试连接
+- 清除失败状态
+- 查看 LLM 调用历史
+
+## 路由模式
+
+- **自动模式**：按 priority 排序，失败自动 fallback
+- **手动模式**：优先使用指定 provider，失败后 fallback 到其他
+
+---
+
+# 🌍 世界观系统
+
+所有世界数据存储在 `data/worlds/*.yaml`（YAML 格式，Web 编辑器可直接编辑）。
+
+每个世界包含：WORLD_NAME、SYSTEM_PROMPT、START_SCENE、CHARACTERS、RULES、LOCATIONS、EVENT_POOL、NPCS。
+
+## Web 热切换世界
+
+在 Web 面板 → 世界编辑器 → 点击"切换"，世界立即生效，**无需重启 main.py**。
+
+切换后 Telegram Bot 和 Web 所有页面会立刻同步到新世界。旧世界的记忆、关系、时间数据不会被删除。
 
 ---
 
 # 🧠 记忆系统
 
-项目拥有两层记忆。
+## 文件结构
 
-## 短期记忆
-
-用于维持当前对话连续性。
-
-例如：
-
-* 正在发生的事件
-* 当前人物关系
-* 最近聊天内容
-
-文件：
+每个世界拥有独立的记忆文件：
 
 ```text
-memory/one_memory.json
+data/sessions/{world}_chat.json       — 短期聊天上下文
+data/memory/{world}_long_term.json    — 长期记忆
+data/memory/{world}_summary.json      — 压缩摘要历史
 ```
+
+旧路径（`memory/{world}_memory.json`）在启动时自动迁移到新路径。
+
+## 数据安全
+
+- 所有记忆文件使用**原子写入**（tmp + flush + fsync + os.replace）
+- 写入前**自动备份**到 `backups/` 目录
+- **空数据保护**：如果即将写入空内容而旧文件非空，拒绝覆盖并记录警告
+- 切换世界、切换模型、重启 main.py **不清空任何记忆**
 
 ---
 
-## 长期记忆
+# 📊 运行时状态文件
 
-用于记录世界状态变化。
+## data/runtime_state.json
 
-例如：
+保存运行时选择，例如：
 
-* 人物关系变化
-* 身份暴露
-* 重要剧情事件
-* 阵营变化
-* 世界观推进
-
-文件：
-
-```text
-memory/one_world_memory.json
+```json
+{
+  "active_world": "one"
+}
 ```
 
-长期记忆会自动参与后续生成。
+由 WorldManager 管理。Web 切换世界时自动更新。
 
----
+## data/provider_state.json
 
-# 🎭 NPC主动行为系统
+保存 provider 运行时状态，例如：
 
-NPC不再只是被动响应用户——他们有**自己的行为规律**，会在合适的时机主动进入故事。
-
-## 工作原理
-
-```
-用户发消息
-  │
-  ├─ 1. npc_manager 检查冷却 + 概率判断
-  │     触发条件: NPC权重 × 全局基础概率
-  │
-  ├─ 2. 为触发的NPC生成"舞台指令"
-  │     例如: "【旅馆老板】性格热情。可采取的行动: 端茶、搭话..."
-  │
-  ├─ 3. 舞台指令注入 system prompt
-  │
-  └─ 4. AI在回复中自然融入NPC行为
-         "谈话间，旅馆老板端着一壶热茶走了过来..."
+```json
+{
+  "mode": "auto",
+  "manual_provider": null,
+  "providers": {
+    "zhipu_glm_air": {
+      "consecutive_failures": 0,
+      "cooldown_until": null,
+      "exhausted": false,
+      "last_error_type": null
+    }
+  },
+  "last_fallback_time": null,
+  "last_fallback_reason": null
+}
 ```
 
-**关键特性**:
-- 💰 **零额外API成本** —— NPC行为由主模型在一次回复中生成
-- 🎛️ **可控频率** —— 权重 + 全局概率 + 冷却三重控制
-- 🔌 **即插即用** —— 世界文件定义NPC，无需修改主程序
-- ⏱️ **双重触发** —— 用户消息驱动 + 后台定时器
-
-## 定义NPC
-
-在 `data/worlds/<世界名>.yaml` 的 `NPCS` 字段中配置（Web 编辑器可直接编辑，也可手动编辑 YAML）：
-
-```yaml
-NPCS:
-  innkeeper:
-    name: 旅馆老板老张
-    description: 镇上唯一旅馆的老板
-    personality: 热情、健谈、爱打听消息
-    goals:
-      - 让客人住得舒服
-      - 打听镇上新鲜事
-    typical_actions:
-      - 主动和客人搭话
-      - 端来热茶招待客人
-      - 分享镇上小道消息
-    activation_weight: 0.35
-    cooldown_messages: 10
-```
-
-**触发概率** = NPC权重 × `NPC_BASE_ACTIVATION` (`.env` 中设置，默认 0.5)
-
-例如: `0.35 × 0.5 = 17.5%` 概率每次用户消息触发该NPC。
-
-## 配置参数
-
-在 `.env` 中调整：
-
-```env
-NPC_BASE_ACTIVATION=0.5             # 全局基础概率 (0~1)，0=完全禁用
-NPC_MAX_ACTIONS_PER_CHECK=1         # 单次最多触发几个NPC
-NPC_TIMER_INTERVAL=300              # 后台定时器间隔（秒）
-NPC_ACTION_MAX_TOKENS=200           # 舞台指令最大token
-NPC_TIMER_ACTIVATION_MULTIPLIER=0.6 # 定时器模式概率折半系数
-NPC_CONTEXT_BOOST_MULTIPLIER=2.0    # 关键词命中时概率翻倍系数
-```
+由 LLMRouter 管理。provider 失败、冷却、耗尽状态都记录在此。
 
 ---
 
@@ -241,31 +248,31 @@ NPC_CONTEXT_BOOST_MULTIPLIER=2.0    # 关键词命中时概率翻倍系数
 
 ```bash
 cp .env.example .env
-```
-
-编辑：
-
-```bash
 nano .env
 ```
 
-配置：
+核心配置：
 
-```env
-BOT_TOKEN=xxxxx
-DEEPSEEK_KEY=xxxxx
-ALLOWED_ID=123456789
-ACTIVE_WORLD=one
-```
+| 变量 | 说明 |
+|------|------|
+| BOT_TOKEN | Telegram Bot Token |
+| ALLOWED_ID | 允许使用 Bot 的 Telegram 用户 ID |
+| ACTIVE_WORLD | 默认世界（可通过 Web 热切换覆盖） |
+| WEB_PORT | Web 面板端口（默认 8080） |
+| WEB_HOST | Web 监听地址（0.0.0.0=外网可访问） |
+| WEB_PASSWORD | Web 面板登录密码（公网必设！） |
 
-说明（完整配置项及详细调参指南见 `config/settings.py` 注释）：
+API Key（与 providers.yaml 中 `api_key_env` 对应）：
 
-| 变量           | 说明                     |
-| ------------ | ---------------------- |
-| BOT_TOKEN    | Telegram Bot Token     |
-| DEEPSEEK_KEY | DeepSeek API Key       |
-| ALLOWED_ID   | 允许使用 Bot 的 Telegram 用户 |
-| ACTIVE_WORLD | 当前加载世界                 |
+| 变量 | 对应 Provider |
+|------|--------------|
+| ZHIPU_API_KEY | zhipu_glm_air |
+| DEEPSEEK_API_KEY | deepseek_v4_flash |
+| OPENROUTER_API_KEY | openrouter_qwen_235b |
+| VSLLM_API_KEY | 自定义 VSLLM provider |
+| ... | 任意自定义 provider |
+
+完整配置项及详细调参指南见 `config/settings.py` 注释。
 
 ---
 
@@ -277,9 +284,8 @@ Ubuntu 示例：
 sudo apt update
 sudo apt install -y python3 python3-venv git tmux
 
-git clone https://github.com/lacunes/Chat-EngineeringOOO.git
-
-cd Chat-EngineeringOOO
+git clone <你的仓库地址>
+cd <项目目录>
 
 python3 -m venv venv
 source venv/bin/activate
@@ -289,131 +295,6 @@ pip install -r requirements.txt
 cp .env.example .env
 nano .env
 
-python main.py
-```
-
----
-
-# 🔧 tmux 后台运行
-
-创建：
-
-```bash
-tmux new -s roleplay
-```
-
-启动：
-
-```bash
-cd Chat-EngineeringOOO
-
-source venv/bin/activate
-
-python main.py
-```
-
-离开：
-
-```text
-Ctrl+B
-D
-```
-
-Bot 将继续运行。
-
----
-
-重新进入：
-
-```bash
-tmux attach -t roleplay
-```
-
-停止：
-
-```text
-Ctrl+C
-```
-
-
----
-
-# 🆕 创建新世界
-
-方式一：Web 面板 → 世界编辑器 → 新建（推荐）
-
-方式二：手动创建：
-
-```bash
-cp data/worlds/one.yaml data/worlds/new_world.yaml
-nano data/worlds/new_world.yaml
-```
-
-修改 WORLD_NAME 及各项设定即可，无需修改主程序。
-
----
-
-# 🔀 切换世界
-
-编辑：
-
-```env
-ACTIVE_WORLD=one
-```
-
-例如：
-
-```env
-ACTIVE_WORLD=two
-```
-
-保存后重启 Bot：
-
-```bash
-python main.py
-```
-
----
-
-# 💾 迁移到新 VPS
-
-安装环境：
-
-```bash
-sudo apt update
-
-sudo apt install -y python3 python3-venv git tmux
-```
-
-拉取项目：
-
-```bash
-git clone https://github.com/lacunes/Chat-EngineeringOOO.git
-
-cd Chat-EngineeringOOO
-```
-
-创建环境：
-
-```bash
-python3 -m venv venv
-
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-配置：
-
-```bash
-cp .env.example .env
-
-nano .env
-```
-
-启动：
-
-```bash
 python main.py
 ```
 
@@ -423,185 +304,122 @@ python main.py
 
 Bot 内置 Flask Web 管理面板，定位为 **"AI 角色扮演导演台"**。
 
-> 注意：这不是 VPS 控制台或系统运维后台。系统级操作（git pull、pip install、重启进程等）请在 VPS/SSH 中完成。
-
 ## 配置
 
-在 `.env` 中设置：
-
 ```env
-WEB_PORT=8080        # 监听端口
-WEB_HOST=0.0.0.0     # 0.0.0.0=外网可访问, 127.0.0.1=仅本机
-WEB_PASSWORD=xxxxx   # 登录密码（用户名 admin），留空则不设密码
+WEB_PORT=8080
+WEB_HOST=0.0.0.0     # 外网可访问（必须设 WEB_PASSWORD！）
+WEB_PASSWORD=xxxxx    # 登录密码（用户名 admin）
 ```
+
+> ⚠️ `WEB_HOST=0.0.0.0` 且未设 `WEB_PASSWORD` 时，项目**拒绝启动**。
 
 ## 访问
 
-```text
+```
 http://你的VPS_IP:8080
 ```
 
-打开登录页面，输入用户名 `admin` 和设定的密码。
+用户名 `admin`，密码为 `.env` 中设置的 `WEB_PASSWORD`。
 
 ## 功能
 
 | 页面 | 功能 |
 |------|------|
-| 📊 仪表盘 | 运行状态、记忆/关系/时间统计、NPC 状态、最近异常摘要（点击展开 traceback）、重置世界 |
-| ⚙ 配置中心 | 21 项剧情与行为参数管理：中文名称 + 推荐范围 + 说明，保存前自动备份 .env |
-| 🌍 世界编辑器 | 列表/新建/复制/删除世界，即时切换世界（无需重启），表单编辑（语法检查+备份回滚），Prompt 预览 |
-| 🔌 模型管理 | 查看所有 provider 状态、切换自动/手动模式、启用/禁用、测试连接、清除失败状态、LLM 调用历史 |
-| 🧠 记忆管理 | 短期记忆浏览 + 长期记忆查看/新增/编辑/删除/精炼 |
-| 🔍 记忆检查 | 长期记忆污染检查：规则检查 + AI 检查，8 种问题类型，报告存档，支持采用建议/手动编辑/忽略 |
-| 💞 关系网络 | 角色关系编辑（-100 锁死极低 / 0-100 正常 / 110 锁死极高），中文维度说明 |
-| ⏰ 时间与节奏 | 时间状态编辑、快速推进、近日摘要、剧情节奏控制（阶段+倾向，注入导演提示） |
-| 📜 日志 | 查看最近 100 行 bot.log，敏感信息自动过滤 |
+| 📊 仪表盘 | 运行状态、记忆/关系/时间统计、NPC 状态、最近异常 |
+| ⚙ 配置中心 | 21 项剧情与行为参数管理 |
+| 🌍 世界编辑器 | 热切换世界、新建/复制/删除、表单编辑、Prompt 预览 |
+| 🔌 模型管理 | Provider 状态、自动/手动模式、测试连接、调用历史 |
+| 🧠 记忆管理 | 短期记忆浏览 + 长期记忆增删改精炼 + 诊断信息 |
+| 🔍 记忆检查 | 长期记忆污染检查（规则 + AI 两层） |
+| 💞 关系网络 | 角色关系编辑（6 维度 + 死锁机制） |
+| ⏰ 时间与节奏 | 时间状态编辑、快速推进、剧情节奏控制 |
+| 📜 日志 | 查看最近日志，敏感信息自动过滤 |
 
 ## 安全
 
 - Session 登录（Cookie: httponly + samesite=lax）
 - 登录失败 3 次后冷却 30 分钟
-- CSRF 保护（所有 POST 表单）
-- 安全响应头：X-Frame-Options: DENY / CSP / nosniff / Referrer-Policy
-- 操作审计日志写入 `web_audit.log`
-- 敏感信息不暴露：BOT_TOKEN、DEEPSEEK_KEY、WEB_PASSWORD 在日志中自动过滤
+- CSRF 保护
+- 安全响应头
+- 操作审计日志
+- 敏感信息自动过滤
+
+---
+
+# 🔧 常见错误说明
+
+| 错误 | 分类 | 处理 |
+|------|------|------|
+| `429 Too Many Requests` | rate_limited | 冷却 30-120s，自动 fallback |
+| `503 Service Unavailable` | unavailable | 冷却 60-300s，自动 fallback |
+| `500/502/504` | unavailable | 同上 |
+| `insufficient balance` | quota_exhausted | 永久跳过（需手动清除） |
+| `No available channel for model xxx under group free` | no_channel | 冷却 10-30min，自动 fallback |
+| `model_not_found` | model_not_found | 标记配置错误，永久跳过 |
+| `401/403 invalid api key` | auth_error | 标记 Key/权限错误，永久跳过 |
+
+Web 面板的模型管理页可以查看每个 provider 的具体失败类型和状态。
+
+---
+
+# 💾 备份与恢复
+
+## 自动备份
+
+项目在以下操作前自动备份：
+- 记忆写入（备份到 `backups/` 目录，保留最近 20 个）
+- providers.yaml 修改（备份到 `backups/` 目录）
+- 世界 YAML 保存（备份到 `backups/worlds/` 目录）
+- /reset 命令（备份旧记忆）
+
+## 手动恢复
+
+```bash
+# 查看备份
+ls backups/
+
+# 恢复记忆（示例）
+cp backups/memory_one_chat_20250608_120000.json data/sessions/one_chat.json
+```
+
+---
+
+# 🎭 NPC主动行为系统
+
+（见上文已有详细说明，此处保留概要）
+
+NPC 行为由主模型在一次回复中生成，零额外 API 成本。通过权重 + 全局概率 + 冷却三重控制频率。
 
 ---
 
 # 💞 关系网络系统
 
-追踪角色之间的关系数值变化，为长期剧情提供结构化支撑。
-
-## 工作原理
-
-```
-用户消息 → AI 回复 → 后台每 2 轮抽取关系变化
-                         │
-                         ├─ 轻量 DeepSeek API 分析对话
-                         ├─ JSON 输出变化量 (±1~3，重大事件可超出)
-                         └─ 下一条回复开头显示: （A→B：信任+2）
-```
-
-## 数据结构（memory/one_relationships.json）
-
-```json
-{
-  "characters": ["A", "B"],
-  "relations": {
-    "A->B": {
-      "affection": 65, "trust": 68, "fear": 10,
-      "dependence": 42, "suspicion": 15, "hostility": 5,
-      "notes": ["初次见面时救过对方"],
-      "last_updated": 42
-    }
-  }
-}
-```
-
-六个维度（0-100）：好感、信任、畏惧、依赖、怀疑、敌意。非对称关系。
-
-> **死锁机制**：
-> - 设某维度为 **110**：该维度将被锁死极高，自动分析**不得降低**
-> - 设某维度为 **-100**：该维度将被锁死极低，自动分析**不得提高**
-> - 显示时加 🔒 标记。正常对话变化范围仍为 0~100。
-> - 110/ -100 不代表"好"或"坏"——例如敌意=110 表示极度敌对，好感=-100 表示极度厌恶
-
-## 如何影响 AI 回复
-
-关系摘要会注入 system prompt 并附带行为指令：
-
-- **好感/信任高** → 语气友好、愿意合作、主动帮助
-- **畏惧/敌意高** → 语气警惕、保持距离、可能拒绝合作
-- **怀疑高** → 话中有话、保留信息、试探性提问
-- **依赖高** → 主动求助、犹豫不决、寻求认可
-- **数值变化** → 在对话中自然体现，不会直接引用数字
-
-## Telegram 命令
-
-| 命令 | 说明 |
-|------|------|
-| `/relations` | 显示当前世界角色关系摘要 |
-| `/relation_full` | 显示完整关系网络（含备注、历史轮次） |
-
-## 配置
-
-```env
-RELATION_EXTRACT_INTERVAL=2       # 每 N 次 AI 回复触发抽取
-RELATION_SIGNIFICANT_THRESHOLD=3  # 变化超过此值标记 ⚡
-```
+追踪角色间 6 维度关系数值（好感、信任、畏惧、依赖、怀疑、敌意）。死锁机制：设为 110/-100 后自动抽取不再修改。
 
 ---
 
 # ⏰ 时间流逝系统
 
-为角色生活提供时间背景，不强行推动剧情。
-
-## 工作原理
-
-```
-用户消息 → 关键词检测
-  ├─ "第二天早上" → 跨天到清晨
-  ├─ "吃完饭后" → 跳到傍晚
-  ├─ "过了一会儿" → 推进一个时段
-  └─ 无时间信息 → 不动，保持当前时段
-
-同个时段超过 80 轮 → 温和提示 /next_time，不强制推进
-/c 续写 → 永远不推进时间
-```
-
-- **用户驱动**：只有用户消息中明确出现时间跳转词才推进
-- **手动命令**：`/next_time` `/next_day` 始终可用
-- 深夜不再自动跨天（除非命中跨天关键词）
-
-## 时间注入
-
-system prompt 会包含时间背景：
-
-```
-[当前时间]
-第3天，初夏，下午。
-近日：入住旅馆；集市偶遇旅人。
-```
-
-## Telegram 命令
-
-| 命令 | 说明 |
-|------|------|
-| `/time` | 显示当前世界时间状态 |
-| `/next_time` | 手动推进一个时段 |
-| `/next_day` | 推进到第二天清晨，生成昨日摘要 |
-
-## 配置
-
-```env
-TIME_AUTO_ADVANCE_ENABLED=false       # 关闭机械自动推进
-TIME_USER_DRIVEN_ADVANCE_ENABLED=true # 启用关键词检测推进
-TIME_LONG_SCENE_HINT_THRESHOLD=80     # 同个时段超 N 轮给提示
-TIME_AUTO_CROSS_DAY=false             # 禁止普通推进跨天
-```
+用户驱动：关键词检测推进。手动命令：`/next_time` `/next_day`。续写不推进时间。
 
 ---
 
 # 🗺 Roadmap
 
 * [x] Telegram Bot
-* [x] 多世界系统
-* [x] 短期记忆
-* [x] 长期记忆
-* [x] 自动记忆抽取
-* [x] GitHub 同步
+* [x] 多世界系统 + 热切换
+* [x] 短期记忆 + 长期记忆
+* [x] 自动记忆抽取与压缩
+* [x] 多模型供应商路由 (LLM Router)
 * [x] NPC 主动行为系统
-* [ ] 世界状态数据库
-* [ ] 多角色同时对话
-* [ ] 自动事件系统
 * [x] 关系网络系统
-* [x] Web 管理面板（深色主题 + Session 安全登录）
-* [x] 配置中心（21 项参数 Web 管理）
-* [x] 记忆污染检查（规则 + AI 两层）
-* [x] 剧情节奏控制（runtime_directive.json）
+* [x] Web 管理面板
+* [x] 配置中心
+* [x] 记忆污染检查
+* [x] 剧情节奏控制
 * [x] 时间流逝系统
-* [x] 多模型供应商路由（LLM Router + Web 模型管理）
-* [x] 世界热切换（无需重启）
+* [x] 原子写入 + 自动备份
 * [ ] 世界状态数据库
 * [ ] 多角色同时对话
 * [ ] 自动事件系统
@@ -611,30 +429,3 @@ TIME_AUTO_CROSS_DAY=false             # 禁止普通推进跨天
 # 📜 License
 
 个人研究使用。
----
-
-# 🔄 GitHub 工作流
-
-提交修改：
-
-```bash
-git add .
-
-git commit -m "update"
-
-git push
-```
-
-服务器同步：
-
-```bash
-git restore .env.example data/worlds/one.yaml
-git pull
-```
-
-依赖更新：
-
-```bash
-pip install -r requirements.txt
-```
-
