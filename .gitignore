@@ -8,6 +8,8 @@ __pycache__/
 *.pyd
 *.log
 memory/
+data/sessions/
+data/memory/
 logs/
 *.bak
 /关系网优化.txt
@@ -31,4 +33,5 @@ docs/
 .reasonix/
 更新记录/
 修修修.txt
+记忆丢失.txt
 

@@ -44,6 +44,9 @@ def index():
     # 解析最近错误
     error_info = _parse_recent_error(log_path)
 
+    # 记忆健康状态
+    memory_status = ctx.memory.get_memory_status()
+
     return render_template(
         "dashboard.html",
         world_name=ctx.world.WORLD_NAME,
@@ -57,6 +60,7 @@ def index():
         uptime=uptime,
         log_size=log_size,
         error_info=error_info,
+        memory_status=memory_status,
         ctx=ctx,
     )
 

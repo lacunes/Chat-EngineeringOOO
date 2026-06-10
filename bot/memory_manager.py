@@ -2,8 +2,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import tempfile
 import threading
+from datetime import datetime
 from pathlib import Path
 
 from bot import utils
@@ -61,27 +63,74 @@ def _should_extract_long_memory(text: str) -> bool:
 class MemoryManager:
     """管理当前世界的短期记忆和长期记忆。
 
-    每个世界使用独立文件：
-    memory/one_memory.json
-    memory/one_world_memory.json
+    文件路径（v2）：
+    data/sessions/{world}_chat.json       — 短期聊天上下文
+    data/memory/{world}_long_term.json    — 长期记忆
+    data/memory/{world}_summary.json      — 压缩摘要（从短期压缩时生成）
+
+    旧路径（v1，启动时自动迁移）：
+    memory/{world}_memory.json
+    memory/{world}_world_memory.json
     """
 
     def __init__(self, world_name: str):
-        settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        # 新路径
+        sessions_dir = settings.BASE_DIR / "data" / "sessions"
+        memory_dir = settings.BASE_DIR / "data" / "memory"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        memory_dir.mkdir(parents=True, exist_ok=True)
+
         self.world_name = world_name
+
+        # 文件路径（v2）
+        self._chat_path = sessions_dir / f"{world_name}_chat.json"
+        self._long_term_path = memory_dir / f"{world_name}_long_term.json"
+        self._summary_path = memory_dir / f"{world_name}_summary.json"
+
+        # 旧路径（v1 迁移用）
+        old_memory_dir = settings.BASE_DIR / "memory"
+        self._old_chat_path = old_memory_dir / f"{world_name}_memory.json"
+        self._old_long_path = old_memory_dir / f"{world_name}_world_memory.json"
+
+        # ── 启动时自动迁移 ──
+        self._migrate_if_needed()
+
         self.memory: list[dict] = []
         self.long_memory: list[str] = []
+        self.summary_log: list[str] = []  # 压缩摘要历史
         self.last_auto_memory_index = 0
         self.reset_confirm_users: dict[int, float] = {}
-        self._lock = threading.Lock()  # Web 面板与 Bot 并发写入保护
+        self._lock = threading.Lock()
 
-        # 统一加载短期+长期记忆
-        for slot, suffix in [("memory", "_memory.json"), ("long_memory", "_world_memory.json")]:
-            path = settings.MEMORY_DIR / f"{world_name}{suffix}"
-            label = "short memory" if slot == "memory" else "long memory"
-            setattr(self, slot, self._load_json_list(path, label))
+        # 健康状态追踪
+        self._last_save_ok: bool = True
+        self._last_save_time: str = ""
+        self._was_recovered: bool = False
 
+        # 加载数据
+        self.memory = self._load_json_list(self._chat_path, "short memory")
+        self.long_memory = self._load_json_list(self._long_term_path, "long memory")
+        self.summary_log = self._load_json_list(self._summary_path, "summary log")
         self.last_auto_memory_index = len(self.memory)
+
+    # ── 旧路径 → 新路径迁移 ──
+
+    def _migrate_if_needed(self) -> None:
+        """如果旧路径存在文件且新路径不存在，自动迁移。"""
+        for old_path, new_path, label in [
+            (self._old_chat_path, self._chat_path, "short memory"),
+            (self._old_long_path, self._long_term_path, "long memory"),
+        ]:
+            if old_path.exists() and not new_path.exists():
+                try:
+                    data = json.loads(old_path.read_text(encoding="utf-8"))
+                    new_path.parent.mkdir(parents=True, exist_ok=True)
+                    new_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                    logger.info("Migrated %s: %s → %s (%d items)", label, old_path, new_path,
+                               len(data) if isinstance(data, list) else 0)
+                    self._was_recovered = True
+                except Exception as exc:
+                    logger.warning("Failed to migrate %s: %s", label, exc)
 
     @property
     def message_count(self) -> int:
@@ -117,12 +166,17 @@ class MemoryManager:
                     self.long_memory.append(clean)
 
     def reset(self) -> None:
+        """重置当前世界的所有记忆（需二次确认才调用）。force=True 允许写入空数组。"""
         with self._lock:
             self.memory = []
             self.long_memory = []
+            self.summary_log = []
             self.last_auto_memory_index = 0
-            self.save_memory()
-            self.save_long_memory()
+            self._was_recovered = False
+            self._last_save_ok = True
+            self.save_memory(force=True)
+            self.save_long_memory(force=True)
+            self._save_summary_log(force=True)
 
     def build_messages(
         self,
@@ -183,12 +237,21 @@ class MemoryManager:
 
         if summary:
             self.add_long_memory_item(f"[plot_fact] 旧剧情摘要：{summary}")
+            # 追加摘要日志
+            with self._lock:
+                self.summary_log.append(
+                    f"[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {summary[:200]}"
+                )
+                # 只保留最近 20 条摘要
+                if len(self.summary_log) > 20:
+                    self.summary_log = self.summary_log[-20:]
             await self.refine_long_memory(client, force=False)
 
         with self._lock:
             self.memory = self.memory[old_size // 2 :]
             self.last_auto_memory_index = len(self.memory)
         self.save_memory()
+        self._save_summary_log()
         logger.info("Short memory compressed: %s -> %s", old_size, len(self.memory))
         return True
 
@@ -287,18 +350,22 @@ class MemoryManager:
 
         self.save_long_memory()
 
-    def save_memory(self) -> None:
-        self._save("memory")
+    def save_memory(self, force: bool = False) -> None:
+        """保存短期记忆（force=True 允许覆盖为空）。"""
+        self._save("memory", self._chat_path, self.memory, "short memory", force)
 
-    def save_long_memory(self) -> None:
-        self._save("long_memory")
+    def save_long_memory(self, force: bool = False) -> None:
+        """保存长期记忆（force=True 允许覆盖为空）。"""
+        self._save("long_memory", self._long_term_path, self.long_memory, "long memory", force)
 
-    def _save(self, slot: str) -> None:
-        """统一持久化入口。slot: 'memory' | 'long_memory'"""
-        suffix = "_memory.json" if slot == "memory" else "_world_memory.json"
-        label = "short memory" if slot == "memory" else "long memory"
-        path = settings.MEMORY_DIR / f"{self.world_name}{suffix}"
-        self._atomic_write(path, getattr(self, slot), label)
+    def _save_summary_log(self, force: bool = False) -> None:
+        """保存压缩摘要日志。"""
+        self._save("summary", self._summary_path, self.summary_log, "summary log", force)
+
+    def _save(self, slot: str, path: Path, data, label: str, force: bool = False) -> None:
+        """统一持久化入口，带空数据保护。"""
+        self._atomic_write(path, data, label, force)
+        self._last_save_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
     def _load_json_list(path: Path, label: str) -> list:
@@ -308,12 +375,19 @@ class MemoryManager:
             with path.open("r", encoding="utf-8") as file:
                 data = json.load(file)
             if isinstance(data, list):
-                cat_counts = _count_categories(data)
-                logger.info(
-                    "Loaded %s from %s (%d items: %s)",
-                    label, path, len(data),
-                    ", ".join(f"{c}={n}" for c, n in sorted(cat_counts.items())),
-                )
+                # 仅对长期记忆做分类统计（其元素为字符串），短期记忆为 dict 列表
+                if any(isinstance(item, str) for item in data[:1]):
+                    cat_counts = _count_categories(data)
+                    logger.info(
+                        "Loaded %s from %s (%d items: %s)",
+                        label, path, len(data),
+                        ", ".join(f"{c}={n}" for c, n in sorted(cat_counts.items())),
+                    )
+                else:
+                    logger.info(
+                        "Loaded %s from %s (%d items)",
+                        label, path, len(data),
+                    )
                 return data
             logger.warning("%s is not a list, using empty list", path)
         except Exception as exc:
@@ -321,11 +395,35 @@ class MemoryManager:
         return []
 
     @staticmethod
-    def _atomic_write(path: Path, data, label: str) -> None:
-        # 原子写入：先写临时文件，再替换正式文件，降低断电/崩溃时 JSON 写坏的概率。
+    def _atomic_write(path: Path, data, label: str, force: bool = False) -> None:
+        """原子写入 + 自动备份 + 空数据保护。
+
+        1. 如果 data 为空 list 且旧文件非空且 force=False → 拒绝覆盖，记录警告
+        2. 备份旧文件到 backups/memory_时间戳.json
+        3. 先写 .tmp，再 os.replace（原子操作）
+        """
+        # ── 空数据保护 ──
+        if isinstance(data, list) and len(data) == 0 and not force:
+            if path.exists():
+                try:
+                    old_size = path.stat().st_size
+                    if old_size > 10:  # 旧文件有实际内容（非空数组 "[]"）
+                        logger.critical(
+                            "REFUSED to overwrite non-empty %s (%d bytes) with empty data! "
+                            "Use force=True only for explicit user reset.",
+                            path, old_size,
+                        )
+                        return
+                except Exception:
+                    pass
+
         tmp = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+
+            # ── 备份旧文件 ──
+            MemoryManager._backup_file(path)
+
             with tempfile.NamedTemporaryFile(
                 mode="w", dir=str(path.parent), prefix=".tmp_", suffix=".json",
                 delete=False, encoding="utf-8",
@@ -340,3 +438,57 @@ class MemoryManager:
                     os.remove(tmp)
                 except Exception:
                     pass
+
+    @staticmethod
+    def _backup_file(path: Path) -> None:
+        """备份文件到 backups/ 目录。"""
+        if not path.exists():
+            return
+        try:
+            backup_dir = path.parent.parent / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_name = f"memory_{path.stem}_{ts}.json"
+            shutil.copy2(path, backup_dir / backup_name)
+            # 只保留最近 20 个备份
+            existing = sorted(backup_dir.glob(f"memory_{path.stem}_*.json"))
+            for old_backup in existing[:-20]:
+                try:
+                    old_backup.unlink()
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.warning("Failed to backup %s: %s", path, exc)
+
+    # ── 记忆状态查询（供 Web 面板使用）──
+
+    def get_memory_status(self) -> dict:
+        """返回记忆健康状况摘要。"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        def file_info(p: Path) -> dict:
+            if not p.exists():
+                return {"exists": False, "size": 0, "mtime": "-", "items": 0}
+            try:
+                st = p.stat()
+                data = json.loads(p.read_text(encoding="utf-8"))
+                items = len(data) if isinstance(data, list) else 0
+                return {
+                    "exists": True,
+                    "size": st.st_size,
+                    "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    "items": items,
+                }
+            except Exception:
+                return {"exists": True, "size": 0, "mtime": "?", "items": 0, "corrupted": True}
+
+        return {
+            "world": self.world_name,
+            "checked_at": now,
+            "last_save_ok": self._last_save_ok,
+            "last_save_time": self._last_save_time or "(尚未保存)",
+            "was_recovered": self._was_recovered,
+            "chat": file_info(self._chat_path),
+            "long_term": file_info(self._long_term_path),
+            "summary": file_info(self._summary_path),
+        }

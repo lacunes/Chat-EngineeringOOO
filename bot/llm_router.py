@@ -7,6 +7,10 @@ LLM Router — 多模型供应商自动路由与故障切换。
 3. 失败自动 fallback、冷却、额度耗尽永久跳过
 4. 记录 logs/llm_usage.jsonl
 5. 持久化状态到 data/provider_state.json
+
+⚠️ 隔离原则：本模块只写 data/provider_state.json 和 providers.yaml，
+绝不触碰 memory/、data/sessions/、data/memory/ 下的任何文件。
+provider 切换、fallback、冷却、模式变更均不影响聊天记忆。
 """
 
 import asyncio
