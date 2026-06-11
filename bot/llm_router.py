@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+from urllib.parse import urlparse, urlunparse
 
 import requests
 import yaml
@@ -1172,8 +1173,11 @@ class LLMRouter:
                 "api_key_env": api_key_env,
                 "timeout_chat_seconds": p.get("timeout_chat_seconds", 60),
                 "timeout_background_seconds": p.get("timeout_background_seconds", 30),
+                "max_retries": p.get("max_retries", 1),
                 "cooldown_seconds": p.get("cooldown_seconds", 300),
                 "max_consecutive_failures": p.get("max_consecutive_failures", 3),
+                "disable_on_quota_exhausted": p.get("disable_on_quota_exhausted", True),
+                "thinking_enabled": p.get("thinking_enabled", False),
                 "consecutive_failures": st.get("consecutive_failures", 0),
                 "cooldown_until": cooldown_until,
                 "cooldown_remaining": cooldown_remaining,
@@ -1183,3 +1187,203 @@ class LLMRouter:
                 "last_error_type": st.get("last_error_type"),
             })
         return result
+
+    # ── 从 /v1/models 获取模型列表 ──
+
+    @staticmethod
+    def fetch_models_from_api(base_url: str, api_key: str) -> dict:
+        """从 API 的 /v1/models 端点获取可用模型列表。
+
+        根据 base_url 自动推导 models 端点：
+        - .../v1/chat/completions → .../v1/models
+        - .../api/paas/v4/chat/completions → .../api/paas/v4/models
+        - 其他格式 → 同 origin 的 /v1/models
+
+        Returns:
+            {"ok": bool, "models": [str, ...], "error": str}
+        """
+        if not base_url or not api_key:
+            return {"ok": False, "models": [], "error": "base_url 和 api_key 不能为空"}
+
+        # 推导 models URL
+        parsed = urlparse(base_url)
+        path = parsed.path
+        if path.endswith("/chat/completions"):
+            models_path = path[:-len("/chat/completions")] + "/models"
+        elif path.endswith("/completions"):
+            models_path = path[:-len("/completions")] + "/models"
+        else:
+            # Fallback: 替换路径为 /v1/models
+            models_path = "/v1/models"
+
+        models_url = urlunparse((
+            parsed.scheme, parsed.netloc, models_path,
+            parsed.params, parsed.query, parsed.fragment,
+        ))
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            resp = requests.get(models_url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            resp_data = resp.json()
+
+            # 兼容 OpenAI / 中转站 格式: {"object": "list", "data": [{"id": "...", ...}]}
+            models = []
+            if isinstance(resp_data, dict) and "data" in resp_data:
+                for item in resp_data["data"]:
+                    if isinstance(item, dict) and "id" in item:
+                        models.append(str(item["id"]))
+            elif isinstance(resp_data, list):
+                # 某些中转站直接返回字符串列表
+                for item in resp_data:
+                    if isinstance(item, str):
+                        models.append(item)
+                    elif isinstance(item, dict) and "id" in item:
+                        models.append(str(item["id"]))
+
+            if not models:
+                return {"ok": False, "models": [], "error": "返回了空的模型列表"}
+
+            models.sort()
+            return {"ok": True, "models": models, "error": ""}
+
+        except requests.exceptions.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.response.text[:300] if e.response is not None else ""
+            except Exception:
+                pass
+            return {"ok": False, "models": [], "error": f"HTTP {e.response.status_code if e.response is not None else '?'}: {detail}"}
+        except requests.exceptions.Timeout:
+            return {"ok": False, "models": [], "error": "请求超时"}
+        except requests.exceptions.ConnectionError:
+            return {"ok": False, "models": [], "error": "连接失败，请检查 base_url"}
+        except Exception as e:
+            return {"ok": False, "models": [], "error": str(e)[:300]}
+
+    # ── 编辑 / 添加 / 删除 Provider ──
+
+    _EDITABLE_FIELDS = [
+        "model", "base_url", "api_key_env", "priority",
+        "task_types", "enabled", "timeout_chat_seconds",
+        "timeout_background_seconds", "max_retries",
+        "cooldown_seconds", "max_consecutive_failures",
+        "disable_on_quota_exhausted", "thinking_enabled",
+    ]
+
+    def edit_provider(self, name: str, updates: dict) -> bool:
+        """编辑某个 provider 的字段（仅允许 _EDITABLE_FIELDS 中的字段）。
+        
+        不允许修改 name（name 是唯一标识符）。
+        返回是否成功。
+        """
+        path = _providers_yaml_path()
+        if not path.exists():
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if not data or "providers" not in data:
+                return False
+
+            found = False
+            for p in data["providers"]:
+                if p.get("name") == name:
+                    for key in self._EDITABLE_FIELDS:
+                        if key in updates:
+                            p[key] = updates[key]
+                    found = True
+                    break
+
+            if not found:
+                return False
+
+            from bot.safe_io import atomic_write_yaml
+            atomic_write_yaml(path, data)
+            self._reload_providers()
+            self._load_and_merge_state()
+            logger.info("Provider '%s' edited: %s", name, [k for k in updates])
+            return True
+        except Exception as e:
+            logger.warning("Failed to edit provider %s: %s", name, e)
+            return False
+
+    def add_provider(self, provider_config: dict) -> bool:
+        """添加一个新的 provider。name 必须唯一。返回是否成功。"""
+        name = (provider_config.get("name") or "").strip()
+        if not name:
+            return False
+        if name in self._providers_by_name:
+            logger.warning("Provider '%s' already exists, cannot add", name)
+            return False
+
+        path = _providers_yaml_path()
+        if not path.exists():
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if not data:
+                data = {"providers": []}
+            if "providers" not in data:
+                data["providers"] = []
+
+            new_p = {
+                "name": name,
+                "enabled": provider_config.get("enabled", True),
+                "priority": int(provider_config.get("priority", 99)),
+                "task_types": provider_config.get("task_types", ["chat"]),
+                "api_key_env": provider_config.get("api_key_env", ""),
+                "base_url": provider_config.get("base_url", ""),
+                "model": provider_config.get("model", ""),
+                "timeout_chat_seconds": int(provider_config.get("timeout_chat_seconds", 60)),
+                "timeout_background_seconds": int(provider_config.get("timeout_background_seconds", 30)),
+                "max_retries": int(provider_config.get("max_retries", 1)),
+                "cooldown_seconds": int(provider_config.get("cooldown_seconds", 300)),
+                "max_consecutive_failures": int(provider_config.get("max_consecutive_failures", 3)),
+                "disable_on_quota_exhausted": bool(provider_config.get("disable_on_quota_exhausted", True)),
+                "thinking_enabled": bool(provider_config.get("thinking_enabled", False)),
+            }
+
+            data["providers"].append(new_p)
+
+            from bot.safe_io import atomic_write_yaml
+            atomic_write_yaml(path, data)
+            self._reload_providers()
+            self._load_and_merge_state()
+            logger.info("Provider '%s' added", name)
+            return True
+        except Exception as e:
+            logger.warning("Failed to add provider %s: %s", name, e)
+            return False
+
+    def delete_provider(self, name: str) -> bool:
+        """删除一个 provider。返回是否成功。"""
+        path = _providers_yaml_path()
+        if not path.exists():
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            if not data or "providers" not in data:
+                return False
+
+            original_count = len(data["providers"])
+            data["providers"] = [p for p in data["providers"] if p.get("name") != name]
+
+            if len(data["providers"]) == original_count:
+                return False  # 没找到
+
+            from bot.safe_io import atomic_write_yaml
+            atomic_write_yaml(path, data)
+            self._reload_providers()
+            self._load_and_merge_state()
+            logger.info("Provider '%s' deleted", name)
+            return True
+        except Exception as e:
+            logger.warning("Failed to delete provider %s: %s", name, e)
+            return False

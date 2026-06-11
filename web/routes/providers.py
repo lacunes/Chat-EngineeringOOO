@@ -146,6 +146,119 @@ def test_provider(name: str):
     return jsonify(result)
 
 
+@providers_bp.route("/fetch-models", methods=["POST"])
+@login_required
+def fetch_models():
+    """从 base_url + api_key 获取模型列表（/v1/models）。"""
+    router = _get_router()
+    if not router:
+        return jsonify({"ok": False, "models": [], "error": "LLM Router 未初始化"})
+
+    base_url = (request.form.get("base_url") or "").strip()
+    api_key = (request.form.get("api_key") or "").strip()
+
+    if not base_url:
+        return jsonify({"ok": False, "models": [], "error": "base_url 不能为空"})
+    if not api_key:
+        return jsonify({"ok": False, "models": [], "error": "API Key 不能为空"})
+
+    result = router.fetch_models_from_api(base_url, api_key)
+    audit_log("模型管理", f"获取模型列表: {base_url[:60]} — {'成功' if result['ok'] else '失败'}")
+    return jsonify(result)
+
+
+@providers_bp.route("/add", methods=["POST"])
+@login_required
+def add_provider():
+    """添加一个新的 provider。"""
+    router = _get_router()
+    if not router:
+        return _flash_redirect(url_for("providers.index"), "LLM Router 未初始化", "error")
+
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return _flash_redirect(url_for("providers.index"), "名称不能为空", "error")
+
+    # 收集所有字段
+    provider_config = {
+        "name": name,
+        "model": (request.form.get("model") or "").strip(),
+        "base_url": (request.form.get("base_url") or "").strip(),
+        "api_key_env": (request.form.get("api_key_env") or "").strip(),
+        "priority": (request.form.get("priority") or "99").strip(),
+        "enabled": request.form.get("enabled") == "true",
+        "task_types": request.form.getlist("task_types") or ["chat"],
+        "timeout_chat_seconds": (request.form.get("timeout_chat_seconds") or "60").strip(),
+        "timeout_background_seconds": (request.form.get("timeout_background_seconds") or "30").strip(),
+        "max_retries": (request.form.get("max_retries") or "1").strip(),
+        "cooldown_seconds": (request.form.get("cooldown_seconds") or "300").strip(),
+        "max_consecutive_failures": (request.form.get("max_consecutive_failures") or "3").strip(),
+        "disable_on_quota_exhausted": request.form.get("disable_on_quota_exhausted") == "true",
+        "thinking_enabled": request.form.get("thinking_enabled") == "true",
+    }
+
+    ok = router.add_provider(provider_config)
+    if ok:
+        audit_log("模型管理", f"添加 provider: {name}")
+        return _flash_redirect(url_for("providers.index"), f"已添加 provider: {name}")
+    else:
+        return _flash_redirect(url_for("providers.index"), f"添加失败，可能名称 '{name}' 已存在", "error")
+
+
+@providers_bp.route("/<name>/edit", methods=["POST"])
+@login_required
+def edit_provider(name: str):
+    """编辑一个 provider 的字段。"""
+    router = _get_router()
+    if not router:
+        return _flash_redirect(url_for("providers.index"), "LLM Router 未初始化", "error")
+
+    updates = {}
+
+    # 收集所有可编辑字段（只包含表单中实际提交的）
+    for field in ["model", "base_url", "api_key_env", "priority",
+                  "timeout_chat_seconds", "timeout_background_seconds",
+                  "max_retries", "cooldown_seconds", "max_consecutive_failures"]:
+        val = request.form.get(field)
+        if val is not None:
+            updates[field] = val.strip()
+
+    # task_types 是多选
+    if "task_types" in request.form:
+        updates["task_types"] = request.form.getlist("task_types")
+
+    # 布尔字段
+    for bool_field in ["enabled", "disable_on_quota_exhausted", "thinking_enabled"]:
+        if bool_field in request.form:
+            updates[bool_field] = request.form.get(bool_field) == "true"
+
+    if not updates:
+        return _flash_redirect(url_for("providers.index"), "没有需要更新的字段", "info")
+
+    ok = router.edit_provider(name, updates)
+    if ok:
+        audit_log("模型管理", f"编辑 provider: {name} — {list(updates.keys())}")
+        return _flash_redirect(url_for("providers.index"), f"已更新 {name}")
+    else:
+        return _flash_redirect(url_for("providers.index"), f"更新 {name} 失败", "error")
+
+
+@providers_bp.route("/<name>/delete", methods=["POST"])
+@login_required
+def delete_provider(name: str):
+    """删除一个 provider。"""
+    router = _get_router()
+    if not router:
+        return _flash_redirect(url_for("providers.index"), "LLM Router 未初始化", "error")
+
+    ok = router.delete_provider(name)
+    if ok:
+        audit_log("模型管理", f"删除 provider: {name}")
+        return _flash_redirect(url_for("providers.index"), f"已删除 {name}")
+    else:
+        return _flash_redirect(url_for("providers.index"), f"删除 {name} 失败", "error")
+
+
 @providers_bp.route("/prompt-preview")
 @login_required
 def prompt_preview():

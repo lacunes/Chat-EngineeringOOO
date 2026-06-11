@@ -12,6 +12,7 @@ safe_io — 通用原子写入与备份工具。
 import json
 import logging
 import os
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,27 @@ from typing import Any
 import yaml
 
 logger = logging.getLogger(__name__)
+
+# ── YAML 自定义 Dumper：强制引号包裹含特殊字符的字符串 ──
+# 模型名如 DeepSeek-V3[Free]、Qwen/Qwen3.6-35B-A3B[Free]、claude-sonnet-4@anthropic
+# 在 YAML 中 [] 会被解析为 flow sequence，@/: 等也可能导致解析问题。
+# 此 dumper 对包含这些字符的字符串自动加双引号。
+
+_YAML_SPECIAL_CHARS_RE = re.compile(r'[\[\]{}:,#&*!|>\'\"%@=`]')
+
+
+class _SafeStringDumper(yaml.SafeDumper):
+    pass
+
+
+def _quoted_str_representer(dumper, data: str):
+    """对含 YAML 特殊字符的字符串强制使用双引号风格。"""
+    if _YAML_SPECIAL_CHARS_RE.search(data):
+        return dumper.represent_scalar('tag:yaml.org,2002:str', data, style='"')
+    return dumper.represent_scalar('tag:yaml.org,2002:str', data)
+
+
+_SafeStringDumper.add_representer(str, _quoted_str_representer)
 
 # 备份保留数量
 _MAX_BACKUPS = 20
@@ -153,7 +175,7 @@ def atomic_write_yaml(path: Path, data: Any, backup: bool = True) -> bool:
             delete=False, encoding="utf-8",
         ) as f:
             tmp = f.name
-            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            yaml.dump(data, f, Dumper=_SafeStringDumper, allow_unicode=True, default_flow_style=False, sort_keys=False)
             f.flush()
             os.fsync(f.fileno())
 

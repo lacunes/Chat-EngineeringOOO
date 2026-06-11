@@ -37,6 +37,93 @@
     </form>
     <span style="color:#9ca3af;font-size:0.85rem;">当前优先: <strong>{{ manual_provider }}</strong></span>
     {% endif %}
+
+    <button class="btn btn-success" id="btn-add-provider" style="margin-left:auto;">➕ 添加 Provider</button>
+  </div>
+</div>
+
+<!-- Provider 编辑/添加表单（隐藏） -->
+<div id="provider-editor" style="display:none;">
+  <div class="card">
+    <div class="card-title" id="editor-title">✏️ 编辑 Provider</div>
+    <div class="card-body">
+      <form id="editor-form" method="post" action="">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" id="editor-is-add" value="0">
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">名称 (name) <span style="color:#ef4444;">*</span></label>
+            <input type="text" name="name" id="editor-name" class="form-input" placeholder="如: my_provider" required>
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">模型 (model)</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" name="model" id="editor-model" class="form-input" placeholder="如: DeepSeek-V3[Free]">
+              <button type="button" class="btn btn-sm btn-secondary" id="btn-fetch-models" title="从 /v1/models 获取模型列表">📋</button>
+            </div>
+            <select id="editor-model-select" class="form-input" style="display:none;margin-top:4px;" onchange="document.getElementById('editor-model').value=this.value;">
+              <option value="">— 选择模型 —</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">API 地址 (base_url)</label>
+            <input type="text" name="base_url" id="editor-base-url" class="form-input" placeholder="https://api.example.com/v1/chat/completions">
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">环境变量名 (api_key_env)</label>
+            <input type="text" name="api_key_env" id="editor-api-key-env" class="form-input" placeholder="如: MY_API_KEY">
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">优先级 (priority)</label>
+            <input type="number" name="priority" id="editor-priority" class="form-input" value="99" min="1" max="999">
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">超时-聊天 (s)</label>
+            <input type="number" name="timeout_chat_seconds" id="editor-timeout-chat" class="form-input" value="60" min="5" max="300">
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">超时-后台 (s)</label>
+            <input type="number" name="timeout_background_seconds" id="editor-timeout-bg" class="form-input" value="30" min="5" max="300">
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">最大重试次数</label>
+            <input type="number" name="max_retries" id="editor-max-retries" class="form-input" value="1" min="0" max="5">
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">冷却秒数</label>
+            <input type="number" name="cooldown_seconds" id="editor-cooldown" class="form-input" value="300" min="0" max="3600">
+          </div>
+          <div>
+            <label style="font-size:0.85rem;color:#9ca3af;">连续失败阈值</label>
+            <input type="number" name="max_consecutive_failures" id="editor-max-fail" class="form-input" value="3" min="1" max="20">
+          </div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <label style="font-size:0.85rem;color:#9ca3af;">任务类型 (task_types)</label>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
+            <label><input type="checkbox" name="task_types" value="chat" checked> 聊天</label>
+            <label><input type="checkbox" name="task_types" value="memory"> 记忆</label>
+            <label><input type="checkbox" name="task_types" value="summary"> 摘要</label>
+            <label><input type="checkbox" name="task_types" value="relation"> 关系</label>
+            <label><input type="checkbox" name="task_types" value="background"> 后台</label>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
+          <label><input type="checkbox" name="enabled" value="true" checked> 启用</label>
+          <label><input type="checkbox" name="disable_on_quota_exhausted" value="true" checked> 额度耗尽时自动禁用</label>
+          <label><input type="checkbox" name="thinking_enabled" value="true"> 启用思考模式</label>
+        </div>
+
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+          <button type="submit" class="btn btn-primary">💾 保存</button>
+          <button type="button" class="btn btn-secondary" id="btn-cancel-edit">取消</button>
+          <span id="editor-fetch-status" style="font-size:0.85rem;color:#9ca3af;margin-left:auto;"></span>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -81,6 +168,15 @@
 
       <!-- 测试连接 -->
       <button class="btn btn-sm btn-secondary test-btn" data-provider="{{ p.name }}">🔬 测试</button>
+
+      <!-- 编辑 -->
+      <button class="btn btn-sm btn-secondary edit-btn" data-provider="{{ p.name }}">✏️ 编辑</button>
+
+      <!-- 删除 -->
+      <form method="post" action="{{ url_for('providers.delete_provider', name=p.name) }}" style="display:inline;" data-confirm="⚠️ 确认删除 {{ p.name }}？此操作不可恢复！">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-danger">🗑️ 删除</button>
+      </form>
     </span>
   </div>
 
@@ -221,7 +317,7 @@
 
 {% block scripts %}
 <script>
-// 测试连接按钮
+// ── 测试连接按钮 ──
 document.querySelectorAll('.test-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
     var name = btn.getAttribute('data-provider');
@@ -252,6 +348,196 @@ document.querySelectorAll('.test-btn').forEach(function(btn) {
     .finally(function() {
       btn.disabled = false;
     });
+  });
+});
+
+// ── 编辑 / 添加 Provider 表单 ──
+var editorDiv = document.getElementById('provider-editor');
+var editorForm = document.getElementById('editor-form');
+var editorTitle = document.getElementById('editor-title');
+var editorIsAdd = document.getElementById('editor-is-add');
+var btnAdd = document.getElementById('btn-add-provider');
+var btnCancel = document.getElementById('btn-cancel-edit');
+var btnFetch = document.getElementById('btn-fetch-models');
+var fetchStatus = document.getElementById('editor-fetch-status');
+var modelSelect = document.getElementById('editor-model-select');
+var csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+// Provider 数据（从 Jinja2 注入，供编辑时填充）
+var providerData = {};
+{% for p in providers %}
+providerData['{{ p.name }}'] = {
+  model: {{ p.model | tojson }},
+  base_url: {{ p.base_url | tojson }},
+  api_key_env: {{ p.api_key_env | tojson }},
+  priority: {{ p.priority }},
+  enabled: {{ 'true' if p.enabled else 'false' }},
+  task_types: {{ p.task_types | tojson }},
+  timeout_chat_seconds: {{ p.timeout_chat_seconds }},
+  timeout_background_seconds: {{ p.timeout_background_seconds }},
+  max_retries: {{ p.max_retries }},
+  cooldown_seconds: {{ p.cooldown_seconds }},
+  max_consecutive_failures: {{ p.max_consecutive_failures }},
+  disable_on_quota_exhausted: {{ 'true' if p.disable_on_quota_exhausted else 'false' }},
+  thinking_enabled: {{ 'true' if p.thinking_enabled else 'false' }}
+};
+{% endfor %}
+
+// 填充表单
+function fillForm(data) {
+  document.getElementById('editor-model').value = data.model || '';
+  document.getElementById('editor-base-url').value = data.base_url || '';
+  document.getElementById('editor-api-key-env').value = data.api_key_env || '';
+  document.getElementById('editor-priority').value = data.priority || 99;
+  document.getElementById('editor-timeout-chat').value = data.timeout_chat_seconds || 60;
+  document.getElementById('editor-timeout-bg').value = data.timeout_background_seconds || 30;
+  document.getElementById('editor-max-retries').value = data.max_retries || 1;
+  document.getElementById('editor-cooldown').value = data.cooldown_seconds || 300;
+  document.getElementById('editor-max-fail').value = data.max_consecutive_failures || 3;
+
+  // Checkboxes: enabled
+  var enabledCb = editorForm.querySelector('input[name="enabled"]');
+  if (enabledCb) enabledCb.checked = data.enabled !== false;
+
+  // Checkboxes: disable_on_quota_exhausted / thinking_enabled
+  var quotaCb = editorForm.querySelector('input[name="disable_on_quota_exhausted"]');
+  if (quotaCb) quotaCb.checked = data.disable_on_quota_exhausted !== false;
+  var thinkCb = editorForm.querySelector('input[name="thinking_enabled"]');
+  if (thinkCb) thinkCb.checked = data.thinking_enabled === true;
+
+  // Checkboxes: task_types
+  var types = data.task_types || ['chat'];
+  editorForm.querySelectorAll('input[name="task_types"]').forEach(function(cb) {
+    cb.checked = types.indexOf(cb.value) >= 0;
+  });
+}
+
+// 清空表单（添加模式）
+function clearForm() {
+  document.getElementById('editor-name').value = '';
+  document.getElementById('editor-name').disabled = false;
+  document.getElementById('editor-model').value = '';
+  document.getElementById('editor-base-url').value = '';
+  document.getElementById('editor-api-key-env').value = '';
+  document.getElementById('editor-priority').value = 99;
+  document.getElementById('editor-timeout-chat').value = 60;
+  document.getElementById('editor-timeout-bg').value = 30;
+  document.getElementById('editor-max-retries').value = 1;
+  document.getElementById('editor-cooldown').value = 300;
+  document.getElementById('editor-max-fail').value = 3;
+  editorForm.querySelector('input[name="enabled"]').checked = true;
+  editorForm.querySelector('input[name="disable_on_quota_exhausted"]').checked = true;
+  editorForm.querySelector('input[name="thinking_enabled"]').checked = false;
+  editorForm.querySelectorAll('input[name="task_types"]').forEach(function(cb) {
+    cb.checked = cb.value === 'chat';
+  });
+  modelSelect.style.display = 'none';
+  modelSelect.innerHTML = '<option value="">— 选择模型 —</option>';
+  fetchStatus.textContent = '';
+}
+
+// 显示编辑器
+function showEditor(title, actionUrl, isAdd) {
+  editorTitle.textContent = title;
+  editorForm.action = actionUrl;
+  editorIsAdd.value = isAdd ? '1' : '0';
+  editorDiv.style.display = 'block';
+  editorDiv.scrollIntoView({behavior:'smooth'});
+}
+
+// 隐藏编辑器
+function hideEditor() {
+  editorDiv.style.display = 'none';
+}
+
+// 添加按钮
+btnAdd.addEventListener('click', function() {
+  clearForm();
+  showEditor('➕ 添加 Provider', '{{ url_for("providers.add_provider") }}', true);
+});
+
+// 取消按钮
+btnCancel.addEventListener('click', hideEditor);
+
+// 编辑按钮
+document.querySelectorAll('.edit-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var name = btn.getAttribute('data-provider');
+    var data = providerData[name] || {};
+    clearForm();
+    document.getElementById('editor-name').value = name;
+    document.getElementById('editor-name').disabled = true;
+    fillForm(data);
+    showEditor('✏️ 编辑 Provider: ' + name,
+      '{{ url_for("providers.edit_provider", name="__NAME__") }}'.replace('__NAME__', encodeURIComponent(name)),
+      false);
+  });
+});
+
+// ── 获取模型列表 ──
+btnFetch.addEventListener('click', function() {
+  var baseUrl = document.getElementById('editor-base-url').value.trim();
+  if (!baseUrl) {
+    alert('请先填写 API 地址 (base_url)');
+    return;
+  }
+  // 尝试从输入框中获取 api_key_env 对应值；如果没有则提示用户手动输入
+  var apiKeyEnv = document.getElementById('editor-api-key-env').value.trim();
+  // 用户可能需要手动输入 API Key（从 .env 中复制）
+  var apiKey = prompt(
+    '请输入 API Key（从 .env 中对应 ' + (apiKeyEnv || 'API_KEY') + ' 的值）：\n\n' +
+    '注意：此 Key 仅用于本次获取模型列表，不会保存到服务器。',
+    ''
+  );
+  if (!apiKey) return;
+
+  btnFetch.disabled = true;
+  fetchStatus.textContent = '⏳ 获取中…';
+  modelSelect.style.display = 'none';
+
+  var formData = new URLSearchParams();
+  formData.append('_csrf_token', csrfToken);
+  formData.append('base_url', baseUrl);
+  formData.append('api_key', apiKey);
+
+  fetch('{{ url_for("providers.fetch_models") }}', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-CSRF-Token': csrfToken
+    },
+    body: formData.toString()
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok && data.models && data.models.length > 0) {
+      modelSelect.innerHTML = '<option value="">— 选择模型 —</option>';
+      data.models.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
+      });
+      modelSelect.style.display = 'block';
+      fetchStatus.innerHTML = '<span style="color:#10b981;">✅ 获取到 ' + data.models.length + ' 个模型</span>';
+    } else {
+      fetchStatus.innerHTML = '<span style="color:#ef4444;">❌ ' + escapeHtml(data.error || '未返回模型列表') + '</span>';
+    }
+  })
+  .catch(function(err) {
+    fetchStatus.innerHTML = '<span style="color:#ef4444;">❌ 请求失败: ' + escapeHtml(String(err)) + '</span>';
+  })
+  .finally(function() {
+    btnFetch.disabled = false;
+  });
+});
+
+// ── 删除确认 ──
+document.querySelectorAll('form[data-confirm]').forEach(function(form) {
+  form.addEventListener('submit', function(e) {
+    if (!confirm(form.getAttribute('data-confirm'))) {
+      e.preventDefault();
+    }
   });
 });
 
