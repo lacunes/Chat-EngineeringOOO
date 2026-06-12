@@ -153,16 +153,18 @@
 
     <span style="display:flex;gap:6px;flex-wrap:wrap;">
       <!-- 启用/禁用 -->
-      <form method="post" action="{{ url_for('providers.toggle_provider', name=p.name) }}" style="display:inline;">
+      <form method="post" action="{{ url_for('providers.toggle_provider') }}" style="display:inline;">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="name" value="{{ p.name }}">
         <button type="submit" class="btn btn-sm {% if p.enabled %}btn-danger{% else %}btn-success{% endif %}">
           {{ '禁用' if p.enabled else '启用' }}
         </button>
       </form>
 
       <!-- 清除状态 -->
-      <form method="post" action="{{ url_for('providers.clear_provider', name=p.name) }}" style="display:inline;" data-confirm="确认清除 {{ p.name }} 的失败/冷却/耗尽状态？">
+      <form method="post" action="{{ url_for('providers.clear_provider') }}" style="display:inline;" data-confirm="确认清除 {{ p.name }} 的失败/冷却/耗尽状态？">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="name" value="{{ p.name }}">
         <button type="submit" class="btn btn-sm btn-secondary">🧹 清除</button>
       </form>
 
@@ -173,8 +175,9 @@
       <button class="btn btn-sm btn-secondary edit-btn" data-provider="{{ p.name }}">✏️ 编辑</button>
 
       <!-- 删除 -->
-      <form method="post" action="{{ url_for('providers.delete_provider', name=p.name) }}" style="display:inline;" data-confirm="⚠️ 确认删除 {{ p.name }}？此操作不可恢复！">
+      <form method="post" action="{{ url_for('providers.delete_provider') }}" style="display:inline;" data-confirm="⚠️ 确认删除 {{ p.name }}？此操作不可恢复！">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="name" value="{{ p.name }}">
         <button type="submit" class="btn btn-sm btn-danger">🗑️ 删除</button>
       </form>
     </span>
@@ -326,13 +329,13 @@ document.querySelectorAll('.test-btn').forEach(function(btn) {
     resultDiv.innerHTML = '<span style="color:#f59e0b;">⏳ 测试中…</span>';
     btn.disabled = true;
 
-    fetch('{{ url_for("providers.test_provider", name="__NAME__") }}'.replace('__NAME__', encodeURIComponent(name)), {
+    fetch('{{ url_for("providers.test_provider") }}', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
       },
-      body: '_csrf_token=' + encodeURIComponent(document.querySelector('meta[name="csrf-token"]').getAttribute('content'))
+      body: '_csrf_token=' + encodeURIComponent(csrfToken) + '&name=' + encodeURIComponent(name)
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -415,7 +418,7 @@ function fillForm(data) {
 // 清空表单（添加模式）
 function clearForm() {
   document.getElementById('editor-name').value = '';
-  document.getElementById('editor-name').disabled = false;
+  document.getElementById('editor-name').readOnly = false;
   document.getElementById('editor-model').value = '';
   document.getElementById('editor-base-url').value = '';
   document.getElementById('editor-api-key-env').value = '';
@@ -466,10 +469,10 @@ document.querySelectorAll('.edit-btn').forEach(function(btn) {
     var data = providerData[name] || {};
     clearForm();
     document.getElementById('editor-name').value = name;
-    document.getElementById('editor-name').disabled = true;
+    document.getElementById('editor-name').readOnly = true;
     fillForm(data);
     showEditor('✏️ 编辑 Provider: ' + name,
-      '{{ url_for("providers.edit_provider", name="__NAME__") }}'.replace('__NAME__', encodeURIComponent(name)),
+      '{{ url_for("providers.edit_provider") }}',
       false);
   });
 });

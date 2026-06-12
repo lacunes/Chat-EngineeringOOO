@@ -41,12 +41,16 @@ def short_memory():
     # 空数据保护触发状态
     empty_protection_triggered = getattr(ctx.memory, '_empty_protection_triggered', False)
 
+    # 长期记忆（过滤垃圾后的真实列表）
+    real_long_items = ctx.memory._get_real_memories()
+    real_long_count = len(real_long_items)
+
     return render_template(
         "memory.html",
         short_messages=recent,
         short_count=ctx.memory.message_count,
-        long_items=ctx.memory.long_memory,
-        long_count=ctx.memory.long_memory_count,
+        long_items=real_long_items,
+        long_count=real_long_count,
         mem_status=mem_status,
         reply_params=reply_params,
         last_call=last_call,
@@ -108,6 +112,27 @@ def edit_long_memory(index: int):
         logger.info("Web panel: edited long memory item #%d", index + 1)
         return _flash_redirect(url_for("memory.short_memory"), f"已更新 #{index + 1}")
     return _flash_redirect(url_for("memory.short_memory"), "无效索引", "error")
+
+
+@memory_bp.route("/long/cleanup", methods=["POST"])
+@login_required
+def cleanup_long_memory():
+    """清理长期记忆中的垃圾条目（```json、[、]、``` 等）。"""
+    ctx = _ctx()
+    try:
+        result = ctx.memory.cleanup_polluted_memories()
+        audit_log("清理记忆", f"删除 {result['removed']} 条垃圾，保留 {result['kept']} 条")
+        logger.info("Web panel: memory cleanup — removed %d, kept %d", result["removed"], result["kept"])
+        if result["removed"] > 0:
+            return _flash_redirect(
+                url_for("memory.short_memory"),
+                f"已清理 {result['removed']} 条垃圾记忆，保留 {result['kept']} 条真实记忆",
+            )
+        else:
+            return _flash_redirect(url_for("memory.short_memory"), "记忆很干净，没有发现垃圾条目")
+    except Exception as exc:
+        logger.error("Web panel memory cleanup failed: %s", exc)
+        return _flash_redirect(url_for("memory.short_memory"), f"清理失败: {exc}", "error")
 
 
 @memory_bp.route("/long/refine", methods=["POST"])

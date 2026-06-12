@@ -32,21 +32,28 @@ class DeepSeekClient:
 
         Args:
             api_key: 保留参数，实际 API Key 从 .env 对应变量读取。
-            model_name: 保留参数，用于 Web 面板展示。
+            model_name: 保留参数，仅作为 Router 未就绪时的兜底显示。
         """
         self.api_key = api_key  # 保留兼容
-        self.model_name = model_name  # 保留兼容，Web 模板会用到
+        self._fallback_model_name = model_name  # 兜底显示名
         self._router: LLMRouter | None = None
+
+    @property
+    def model_name(self) -> str:
+        """动态读取当前实际使用的模型名（从 Router 最后一次成功调用获取）。
+
+        如果 Router 未就绪或无调用记录，回退到构造时传入的兜底名。
+        """
+        if self._router:
+            status = self._router.get_dashboard_status()
+            current = status.get("current_model")
+            if current:
+                return current
+        return self._fallback_model_name
 
     def set_router(self, router: LLMRouter) -> None:
         """注入 LLMRouter 实例（由 main.py 在初始化时调用）。"""
         self._router = router
-        # 同步 model_name 到第一个可用 provider 的模型名
-        if router:
-            providers = router.get_provider_list()
-            active = [p for p in providers if p.get("enabled") and p.get("has_api_key")]
-            if active:
-                self.model_name = active[0].get("model", self.model_name)
 
     @property
     def router(self) -> LLMRouter | None:

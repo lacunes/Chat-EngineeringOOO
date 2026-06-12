@@ -22,15 +22,9 @@
 
         {% if cfg.type == 'select' %}
           <select name="{{ cfg.key }}">
-          {% if cfg.options_dynamic %}
-            {% for opt in world_options %}
+          {% for opt in cfg.options %}
             <option value="{{ opt.value }}" {% if cur_val == opt.value %}selected{% endif %}>{{ opt.label }}</option>
-            {% endfor %}
-          {% else %}
-            {% for opt in cfg.options %}
-            <option value="{{ opt.value }}" {% if cur_val == opt.value %}selected{% endif %}>{{ opt.label }}</option>
-            {% endfor %}
-          {% endif %}
+          {% endfor %}
           </select>
 
         {% elif cfg.type == 'bool' %}

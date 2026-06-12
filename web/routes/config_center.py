@@ -25,24 +25,6 @@ config_bp = Blueprint("config_center", __name__, url_prefix="/config")
 
 CONFIG_DEFS = [
     {
-        "key": "ACTIVE_WORLD",
-        "name": "当前世界",
-        "type": "select",
-        "desc": "选择当前启用的世界设定。切换后需重启 Bot 生效。",
-        "options_dynamic": True,  # 动态从 worlds/ 目录读取
-    },
-    {
-        "key": "MODEL_NAME",
-        "name": "使用模型",
-        "type": "select",
-        "desc": "选择 DeepSeek 模型。deepseek-v4-flash 为当前推荐模型。旧名 deepseek-chat/reasoner 将逐步废弃。",
-        "options": [
-            {"value": "deepseek-v4-flash", "label": "deepseek-v4-flash（推荐）"},
-            {"value": "deepseek-chat", "label": "deepseek-chat（旧名兼容）"},
-            {"value": "deepseek-reasoner", "label": "deepseek-reasoner（推理，旧名）"},
-        ],
-    },
-    {
         "key": "MIN_REPLY_TOKENS",
         "name": "回复最短长度",
         "type": "int",
@@ -203,14 +185,10 @@ def index():
     # 读取当前 .env 中的所有值
     current_values = _read_all_env_values()
 
-    # 动态获取世界列表
-    world_options = _get_world_options()
-
     return render_template(
         "config.html",
         configs=CONFIG_DEFS,
         current_values=current_values,
-        world_options=world_options,
         ctx=ctx,
     )
 
@@ -306,18 +284,6 @@ def _read_all_env_values() -> dict[str, str]:
 
     logger.debug("Read %d config values from %s", len(result), env_path)
     return result
-
-
-def _get_world_options() -> list[dict]:
-    """列出 worlds/ 目录下的世界文件作为下拉选项。"""
-    worlds_dir = settings.BASE_DIR / "worlds"
-    options = []
-    for py_file in sorted(worlds_dir.glob("*.py")):
-        name = py_file.stem
-        if name.startswith("_"):
-            continue
-        options.append({"value": name, "label": name})
-    return options
 
 
 def _backup_env() -> None:

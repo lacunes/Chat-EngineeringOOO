@@ -17,8 +17,22 @@
     </div>
     <div class="stat-item">
       <div class="stat-label">使用模型</div>
-      <div class="stat-value">{{ model }}</div>
+      <div class="stat-value">{{ router_status.get('current_model', '—') }}</div>
     </div>
+    <div class="stat-item">
+      <div class="stat-label">当前 Provider</div>
+      <div class="stat-value">{{ router_status.get('current_provider', '—') }}</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">路由模式</div>
+      <div class="stat-value">{{ '🔧 手动' if router_status.get('provider_mode') == 'manual' else '🔄 自动' }}</div>
+    </div>
+    {% if router_status.get('last_fallback_reason') %}
+    <div class="stat-item">
+      <div class="stat-label">最近 Fallback</div>
+      <div class="stat-value" style="font-size:0.8rem;color:#f59e0b;">{{ router_status.last_fallback_reason[:60] }}</div>
+    </div>
+    {% endif %}
     <div class="stat-item">
       <div class="stat-label">运行时长</div>
       <div class="stat-value">{{ uptime }}</div>

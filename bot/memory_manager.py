@@ -139,7 +139,13 @@ class MemoryManager:
 
     @property
     def long_memory_count(self) -> int:
-        return len(self.long_memory)
+        """只统计真实的长期记忆条目（过滤垃圾结构符号）。"""
+        return len(self._get_real_memories())
+
+    def _get_real_memories(self) -> list[str]:
+        """返回过滤垃圾后的真实记忆列表。"""
+        from bot.utils import _filter_valid_memories
+        return _filter_valid_memories(self.long_memory)
 
     def add_user_message(self, text: str) -> None:
         with self._lock:
@@ -282,11 +288,20 @@ class MemoryManager:
                 temperature=0.35,
                 purpose="memory_extract",
             )
-            new_items = utils.parse_memory_json(extracted_text)
+            raw_items = utils.parse_memory_json(extracted_text)
+            new_items = utils.parse_memory_items(extracted_text) if raw_items else []
+
+            # 记录清洗掉了多少垃圾
+            if raw_items and len(raw_items) != len(new_items):
+                removed_count = len(raw_items) - len(new_items)
+                logger.info(
+                    "Memory cleanup: removed %d garbage items from %d raw items",
+                    removed_count, len(raw_items),
+                )
+
             if new_items:
                 # 统计分类
                 cat_counts = _count_categories(new_items)
-                # 列出临时状态条目
                 temp_items = [it for it in new_items if it.startswith("[temporary_state]")]
                 logger.info(
                     "Auto extracted %d long memory items: %s%s",
@@ -332,7 +347,7 @@ class MemoryManager:
                 purpose="memory_refine",
                 temperature=0.35,  # 精炼需要准确合并去重，温度低减少偏差
             )
-            refined = utils.parse_memory_json(refined_text)
+            refined = utils.parse_memory_items(refined_text)
             with self._lock:
                 if refined:
                     self.long_memory = refined[: settings.LONG_MEMORY_MAX_ITEMS]
@@ -355,8 +370,58 @@ class MemoryManager:
         """保存短期记忆（force=True 允许覆盖为空）。"""
         self._save("memory", self._chat_path, self.memory, "short memory", force)
 
+    def cleanup_polluted_memories(self) -> dict:
+        """清理已有长期记忆中的污染条目。返回清理统计。
+
+        1. 自动备份 long_term 文件
+        2. 过滤垃圾条目
+        3. 保留真实记忆
+        4. 保存清理后的结果
+        """
+        from bot.utils import _filter_valid_memories
+
+        with self._lock:
+            old_count = len(self.long_memory)
+            old_items = list(self.long_memory)
+
+        # 备份
+        self._backup_file(self._long_term_path)
+
+        # 过滤
+        clean_items = _filter_valid_memories(old_items)
+        removed = old_count - len(clean_items)
+
+        with self._lock:
+            self.long_memory = clean_items
+
+        self.save_long_memory()
+
+        logger.info(
+            "Memory cleanup: removed %d garbage items, kept %d real memories (from %d total)",
+            removed, len(clean_items), old_count,
+        )
+
+        return {
+            "before": old_count,
+            "after": len(clean_items),
+            "removed": removed,
+            "kept": len(clean_items),
+        }
+
     def save_long_memory(self, force: bool = False) -> None:
-        """保存长期记忆（force=True 允许覆盖为空）。"""
+        """保存长期记忆（force=True 允许覆盖为空）。
+
+        保存前校验：不允许保存 ```json、[、]、``` 等垃圾条目。
+        """
+        from bot.utils import _filter_valid_memories
+        # 保存前过滤垃圾
+        clean = _filter_valid_memories(self.long_memory)
+        if len(clean) != len(self.long_memory):
+            logger.warning(
+                "Pre-save filter removed %d garbage items from long_memory",
+                len(self.long_memory) - len(clean),
+            )
+            self.long_memory = clean
         self._save("long_memory", self._long_term_path, self.long_memory, "long memory", force)
 
     def _save_summary_log(self, force: bool = False) -> None:

@@ -1138,6 +1138,38 @@ class LLMRouter:
             return {"ok": False, "reply": "", "latency_ms": latency,
                     "error": str(exc)[:300], "model": model}
 
+    # ── 仪表盘状态（供 Web 面板和 Telegram /status 统一使用）──
+
+    def get_dashboard_status(self) -> dict:
+        """返回仪表盘所需的模型/Provider 实时状态。
+
+        所有显示层（仪表盘、顶部栏、Telegram /status）必须从此方法读取，
+        不再使用 settings.MODEL_NAME。
+        """
+        self._check_reload()
+        call_history = list(self._call_history)
+
+        last_success = None
+        for call in reversed(call_history):
+            if call.get("success"):
+                last_success = call
+                break
+
+        # 当前活跃 provider：最后一次成功调用的 provider
+        current_provider = last_success["provider"] if last_success else None
+        current_model = last_success["model"] if last_success else None
+
+        return {
+            "provider_mode": self._state.get("mode", "auto"),
+            "manual_provider": self._state.get("manual_provider"),
+            "current_provider": current_provider,
+            "current_model": current_model,
+            "last_success_provider": current_provider,
+            "last_success_model": current_model,
+            "last_fallback_reason": self._state.get("last_fallback_reason"),
+            "last_fallback_time": self._state.get("last_fallback_time"),
+        }
+
     # ── 调用历史 ──
 
     def get_call_history(self) -> list[dict]:

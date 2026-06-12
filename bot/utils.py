@@ -77,6 +77,7 @@ def normalize_memory_items(items: list) -> list:
 
 
 def parse_memory_json(text: str) -> list:
+    """旧版解析器（保留兼容，新代码请用 parse_memory_items）。"""
     try:
         data = json.loads(text)
         if isinstance(data, list):
@@ -90,6 +91,133 @@ def parse_memory_json(text: str) -> list:
         if line:
             lines.append(line.strip('"“”'))
     return normalize_memory_items(lines)
+
+
+# ── 垃圾行模式（长期记忆污染清洗用）──
+
+_GARBAGE_PATTERNS = frozenset({
+    "```json", "```", "[", "]", "{", "}", "},", ",",
+})
+
+
+def parse_memory_items(raw: str) -> list[str]:
+    """清洗模型返回的长期记忆提取/精炼结果，返回干净的字符串列表。
+
+    处理规则：
+    1. 去除 ```json ... ``` 代码块包裹
+    2. 尝试 json.loads 解析
+    3. 如果是 list，只保留字符串元素
+    4. 解析失败按行兜底
+    5. 兜底按行过滤垃圾行
+    6. 去重
+    7. 只保留包含分类标签或有明确正文的句子
+    """
+    import re
+
+    _VALID_MEMORY_TAG = re.compile(
+        r"\[(?:hard_fact|relationship|plot_fact|character_state"
+        r"|user_preference|temporary_state|world_state|legacy)\]"
+    )
+
+    text = raw.strip()
+
+    # 1. 去除代码块包裹
+    for fence in ("```json", "```"):
+        if text.startswith(fence):
+            text = text[len(fence):].strip()
+        if text.endswith("```"):
+            text = text[:-3].strip()
+
+    # 2. 尝试 JSON 解析
+    items = []
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, str):
+                    cleaned = normalize_text(item)
+                    if cleaned:
+                        items.append(cleaned)
+            if items:
+                return _filter_valid_memories(items)
+        elif isinstance(data, dict) and "items" in data:
+            nested = data.get("items", [])
+            if isinstance(nested, list):
+                for item in nested:
+                    if isinstance(item, str):
+                        cleaned = normalize_text(item)
+                        if cleaned:
+                            items.append(cleaned)
+                if items:
+                    return _filter_valid_memories(items)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # 4. 按行兜底
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+
+        # 去掉行首的列表标记
+        stripped = re.sub(r'^[-*]\s*', '', stripped)
+        stripped = re.sub(r'^\d+[.\、)]\s*', '', stripped)
+        stripped = stripped.strip().strip('"「"」\'')
+
+        if not stripped:
+            continue
+
+        # 5. 过滤垃圾行
+        if stripped in _GARBAGE_PATTERNS:
+            continue
+
+        # 纯符号行（没有字母、中文或日文）
+        has_content = bool(re.search(r'[a-zA-Z一-鿿぀-ゟ゠-ヿ]', stripped))
+        if not has_content:
+            continue
+
+        # 过短无意义行（< 6 字符且无分类标签）
+        if len(stripped) < 6 and not _VALID_MEMORY_TAG.search(stripped):
+            continue
+
+        lines.append(stripped)
+
+    items = normalize_memory_items(lines)
+    return _filter_valid_memories(items)
+
+
+def _filter_valid_memories(items: list[str]) -> list[str]:
+    """过滤：只保留包含分类标签或有明确正文的条目。"""
+    import re
+
+    _VALID_MEMORY_TAG = re.compile(
+        r"\[(?:hard_fact|relationship|plot_fact|character_state"
+        r"|user_preference|temporary_state|world_state|legacy)\]"
+    )
+
+    result = []
+    seen = set()
+    for item in items:
+        if not item or item in seen:
+            continue
+
+        stripped = item.strip()
+        if stripped in _GARBAGE_PATTERNS:
+            continue
+
+        # 包含有效分类标签 → 直接保留
+        if _VALID_MEMORY_TAG.search(item):
+            seen.add(item)
+            result.append(item)
+            continue
+
+        # 没有标签但有中英文正文（>= 15 字符）→ 保留
+        has_text = bool(re.search(r'[a-zA-Z一-鿿぀-ゟ゠-ヿ]', item))
+        if has_text and len(item) >= 15:
+            seen.add(item)
+            result.append(item)
+            continue
+
+    return result
 
 
 def split_reply(text: str, threshold: int = None) -> list:

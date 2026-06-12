@@ -2,7 +2,7 @@
 {% block title %}记忆管理{% endblock %}
 {% block content %}
 <h1 class="page-title">🧠 记忆管理</h1>
-<p class="page-subtitle">短期记忆共 {{ short_count }} 条，长期记忆共 {{ long_count }} 条</p>
+<p class="page-subtitle">短期记忆共 {{ short_count }} 条，长期记忆共 {{ long_count }} 条（真实记忆）</p>
 
 <!-- 诊断信息 -->
 <div class="card" style="margin-bottom:16px;">
@@ -53,6 +53,10 @@
 <div class="card">
   <div class="card-header">
     <h2>长期记忆（{{ long_items|length }} 条）</h2>
+    <form method="post" action="{{ url_for('memory.cleanup_long_memory') }}" style="display:inline">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-ghost btn-sm" data-confirm="确认清理长期记忆垃圾？会自动备份后删除 ```json、[、]、``` 等无效条目。">🧹 清理垃圾</button>
+    </form>
     <form method="post" action="{{ url_for('memory.refine_long_memory') }}" style="display:inline">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-ghost btn-sm" data-confirm="确认精炼长期记忆？AI 将去重合并，保留核心信息。">🔧 精炼长期记忆</button>

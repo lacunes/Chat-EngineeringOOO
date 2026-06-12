@@ -47,10 +47,15 @@ def index():
     # 记忆健康状态
     memory_status = ctx.memory.get_memory_status()
 
+    # 从 LLMRouter 读取真实模型/Provider 状态（不再使用 settings.MODEL_NAME）
+    router_status = {}
+    if ctx.client.router:
+        router_status = ctx.client.router.get_dashboard_status()
+
     return render_template(
         "dashboard.html",
         world_name=ctx.world.WORLD_NAME,
-        model=settings.MODEL_NAME,
+        router_status=router_status,
         memory_count=ctx.memory.message_count,
         long_count=ctx.memory.long_memory_count,
         relation_count=len(ctx.relationship_manager.relations),

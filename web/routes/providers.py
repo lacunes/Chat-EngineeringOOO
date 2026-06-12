@@ -94,13 +94,17 @@ def set_manual_provider():
     return _flash_redirect(url_for("providers.index"), f"已手动优先使用 {name}，立即生效")
 
 
-@providers_bp.route("/<name>/toggle", methods=["POST"])
+@providers_bp.route("/toggle", methods=["POST"])
 @login_required
-def toggle_provider(name: str):
-    """启用/禁用某个 provider。"""
+def toggle_provider():
+    """启用/禁用某个 provider。name 从 POST body 获取。"""
     router = _get_router()
     if not router:
         return _flash_redirect(url_for("providers.index"), "LLM Router 未初始化", "error")
+
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return _flash_redirect(url_for("providers.index"), "未指定 provider 名称", "error")
 
     providers = router.get_provider_list()
     target = next((p for p in providers if p["name"] == name), None)
@@ -108,41 +112,58 @@ def toggle_provider(name: str):
         return _flash_redirect(url_for("providers.index"), f"Provider '{name}' 不存在", "error")
 
     if target["enabled"]:
-        router.disable_provider(name)
-        audit_log("模型管理", f"禁用 provider: {name}")
+        ok = router.disable_provider(name)
+        audit_log("模型管理", f"禁用 provider: {name}", ok)
+        if not ok:
+            logger.warning("Failed to disable provider: %s", name)
+            return _flash_redirect(url_for("providers.index"), f"禁用 {name} 失败", "error")
         return _flash_redirect(url_for("providers.index"), f"已禁用 {name}")
     else:
-        router.enable_provider(name)
-        audit_log("模型管理", f"启用 provider: {name}")
+        ok = router.enable_provider(name)
+        audit_log("模型管理", f"启用 provider: {name}", ok)
+        if not ok:
+            logger.warning("Failed to enable provider: %s", name)
+            return _flash_redirect(url_for("providers.index"), f"启用 {name} 失败", "error")
         return _flash_redirect(url_for("providers.index"), f"已启用 {name}")
 
 
-@providers_bp.route("/<name>/clear", methods=["POST"])
+@providers_bp.route("/clear", methods=["POST"])
 @login_required
-def clear_provider(name: str):
+def clear_provider():
     """清除 provider 的 failures/cooldown/exhausted 状态。"""
     router = _get_router()
     if not router:
         return _flash_redirect(url_for("providers.index"), "LLM Router 未初始化", "error")
+
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return _flash_redirect(url_for("providers.index"), "未指定 provider 名称", "error")
 
     ok = router.clear_provider_state(name)
     if ok:
         audit_log("模型管理", f"清除状态: {name}")
         return _flash_redirect(url_for("providers.index"), f"已清除 {name} 的失败/冷却/耗尽状态")
     else:
+        logger.warning("Failed to clear provider state: %s", name)
         return _flash_redirect(url_for("providers.index"), f"Provider '{name}' 不存在", "error")
 
 
-@providers_bp.route("/<name>/test", methods=["POST"])
+@providers_bp.route("/test", methods=["POST"])
 @login_required
-def test_provider(name: str):
-    """测试 provider 连接。"""
+def test_provider():
+    """测试 provider 连接。返回 JSON。"""
     router = _get_router()
     if not router:
         return jsonify({"ok": False, "error": "LLM Router 未初始化"})
 
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "未指定 provider 名称"})
+
     result = router.test_connection(name)
     audit_log("模型管理", f"测试连接: {name} — {'成功' if result['ok'] else '失败'}")
+    if not result["ok"]:
+        logger.warning("Provider test failed: %s — %s", name, result.get("error", ""))
     return jsonify(result)
 
 
@@ -205,13 +226,17 @@ def add_provider():
         return _flash_redirect(url_for("providers.index"), f"添加失败，可能名称 '{name}' 已存在", "error")
 
 
-@providers_bp.route("/<name>/edit", methods=["POST"])
+@providers_bp.route("/edit", methods=["POST"])
 @login_required
-def edit_provider(name: str):
-    """编辑一个 provider 的字段。"""
+def edit_provider():
+    """编辑一个 provider 的字段。name 从 POST body 获取。"""
     router = _get_router()
     if not router:
         return _flash_redirect(url_for("providers.index"), "LLM Router 未初始化", "error")
+
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return _flash_redirect(url_for("providers.index"), "未指定 provider 名称", "error")
 
     updates = {}
 
@@ -240,22 +265,28 @@ def edit_provider(name: str):
         audit_log("模型管理", f"编辑 provider: {name} — {list(updates.keys())}")
         return _flash_redirect(url_for("providers.index"), f"已更新 {name}")
     else:
+        logger.warning("Failed to edit provider: %s", name)
         return _flash_redirect(url_for("providers.index"), f"更新 {name} 失败", "error")
 
 
-@providers_bp.route("/<name>/delete", methods=["POST"])
+@providers_bp.route("/delete", methods=["POST"])
 @login_required
-def delete_provider(name: str):
-    """删除一个 provider。"""
+def delete_provider():
+    """删除一个 provider。name 从 POST body 获取。"""
     router = _get_router()
     if not router:
         return _flash_redirect(url_for("providers.index"), "LLM Router 未初始化", "error")
+
+    name = (request.form.get("name") or "").strip()
+    if not name:
+        return _flash_redirect(url_for("providers.index"), "未指定 provider 名称", "error")
 
     ok = router.delete_provider(name)
     if ok:
         audit_log("模型管理", f"删除 provider: {name}")
         return _flash_redirect(url_for("providers.index"), f"已删除 {name}")
     else:
+        logger.warning("Failed to delete provider: %s", name)
         return _flash_redirect(url_for("providers.index"), f"删除 {name} 失败", "error")
 
 
