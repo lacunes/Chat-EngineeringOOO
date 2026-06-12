@@ -220,6 +220,105 @@ def _filter_valid_memories(items: list[str]) -> list[str]:
     return result
 
 
+def normalize_base_url(url: str) -> str:
+    """规范化 base_url：去掉尾部斜杠，裁剪 /chat/completions 后缀。
+
+    规则：
+    - 去掉尾部 /
+    - 如果以 /chat/completions 结尾 → 裁剪掉
+    - 如果以 /completions 结尾 → 裁剪掉
+    - 保留到 /v1 或其他 base path
+
+    Examples:
+        https://api.deepseek.com/chat/completions → https://api.deepseek.com
+        https://api.deepseek.com/v1/chat/completions → https://api.deepseek.com/v1
+        https://vsllm.com/v1 → https://vsllm.com/v1
+        https://open.bigmodel.cn/api/paas/v4/chat/completions → https://open.bigmodel.cn/api/paas/v4
+    """
+    url = url.strip().rstrip("/")
+    if url.endswith("/chat/completions"):
+        url = url[:-len("/chat/completions")]
+    elif url.endswith("/completions"):
+        url = url[:-len("/completions")]
+    return url
+
+
+def build_chat_url(base_url: str) -> str:
+    """从 base_url 构建 chat completions 端点。"""
+    base = normalize_base_url(base_url)
+    return base + "/chat/completions"
+
+
+def build_models_url(base_url: str) -> str:
+    """从 base_url 构建 models 端点。"""
+    base = normalize_base_url(base_url)
+    return base + "/models"
+
+
+def filter_sensitive(text: str) -> str:
+    """统一敏感信息过滤：API Key、Token、密码等。
+
+    自动从 .env 和 providers.yaml 读取所有可能的 secret，
+    以及 sk- 开头的 key、Bearer token、Authorization header。
+    所有日志展示、Web 异常页、Provider 测试错误都必须调用此函数。
+    """
+    import os
+    import re
+
+    if not text or not isinstance(text, str):
+        return text
+
+    # 收集所有需要过滤的 secret
+    secrets = set()
+
+    # 1. 从 .env 读取常见环境变量
+    env_keys = [
+        "BOT_TOKEN", "WEB_PASSWORD",
+        "DEEPSEEK_KEY", "DEEPSEEK_API_KEY",
+        "ZHIPU_API_KEY", "OPENROUTER_API_KEY",
+        "VSLLM_API_KEY", "MINIMAX_API_KEY",
+        "KIMI_API_KEY", "CATALW_API_KEY",
+    ]
+    for key in env_keys:
+        val = os.getenv(key, "").strip()
+        if val and len(val) > 4:
+            secrets.add(val)
+
+    # 2. 从 providers.yaml 读取 api_key_env 对应的环境变量
+    try:
+        yaml_path = settings.BASE_DIR / "providers.yaml"
+        if yaml_path.exists():
+            import yaml
+            data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for p in data.get("providers", []):
+                    if isinstance(p, dict):
+                        env_name = p.get("api_key_env", "")
+                        if env_name:
+                            val = os.getenv(env_name, "").strip()
+                            if val and len(val) > 4:
+                                secrets.add(val)
+    except Exception:
+        pass
+
+    result = text
+
+    # 3. 过滤完整 secret 值
+    for secret in sorted(secrets, key=len, reverse=True):
+        result = result.replace(secret, "***")
+
+    # 4. 过滤 sk- 开头的 key
+    result = re.sub(r'sk-[a-zA-Z0-9_-]{8,}', 'sk-***', result)
+
+    # 5. 过滤 Bearer token
+    result = re.sub(r'Bearer\s+[a-zA-Z0-9_\-\.=]+', 'Bearer ***', result)
+
+    # 6. 过滤 Authorization header 值
+    result = re.sub(r'Authorization[:\s]+[a-zA-Z0-9_\-\.=]+', 'Authorization: ***', result)
+
+    return result
+
+
 def split_reply(text: str, threshold: int = None) -> list:
     # Telegram 可以发送长消息，但分段后的阅读体验更好。
     # 这里优先按自然断点切开，找不到标点时再硬切。

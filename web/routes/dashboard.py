@@ -217,11 +217,6 @@ def _parse_traceback_block(block: list[str], all_lines: list[str]) -> dict | Non
 
 
 def _filter_sensitive(text: str) -> str:
-    """过滤敏感信息。"""
-    import os
-    for secret in [os.getenv("BOT_TOKEN", ""), os.getenv("DEEPSEEK_KEY", ""), os.getenv("WEB_PASSWORD", "")]:
-        if secret and len(secret) > 4:
-            text = text.replace(secret, "***")
-    # 也替换 API key 模式
-    text = re.sub(r'sk-[a-zA-Z0-9]{10,}', 'sk-***', text)
-    return text
+    """过滤敏感信息（委托给统一工具函数）。"""
+    from bot.utils import filter_sensitive
+    return filter_sensitive(text)

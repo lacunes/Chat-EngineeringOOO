@@ -103,19 +103,19 @@
       </tr>
     </thead>
     <tbody>
-      {% for key, label in [('chat', '💬 短期对话'), ('long_term', '🧠 长期记忆'), ('summary', '📋 压缩摘要')] %}
+      {% for key, label in [('chat', '💬 短期对话'), ('long', '🧠 长期记忆'), ('summary', '📋 压缩摘要')] %}
       {% set f = memory_status[key] %}
       <tr>
         <td>{{ label }}</td>
-        <td>{{ f.items }} 条</td>
+        <td>{{ f.count }} 条</td>
         <td>{{ (f.size / 1024) | round(1) }} KB</td>
         <td>{{ f.mtime }}</td>
         <td>
-          {% if not f.exists %}
+          {% if not f.ok and not f.get('corrupted') %}
           <span style="color:#6b7280;">⚫ 未创建</span>
           {% elif f.get('corrupted') %}
           <span style="color:#ef4444;">💥 损坏</span>
-          {% elif f.items == 0 %}
+          {% elif f.count == 0 %}
           <span style="color:#9ca3af;">⚪ 空</span>
           {% else %}
           <span style="color:#10b981;">✅ 正常</span>

@@ -197,6 +197,13 @@ def index():
 @login_required
 def save():
     """保存配置并自动备份 .env。"""
+    # 白名单：只允许编辑 CONFIG_DEFS 中的配置项，阻止编辑 API Key 和 BOT_TOKEN
+    _ALLOWED_KEYS = {cfg["key"] for cfg in CONFIG_DEFS}
+    _FORBIDDEN_KEYS = {"BOT_TOKEN", "WEB_PASSWORD", "DEEPSEEK_KEY", "DEEPSEEK_API_KEY",
+                        "ZHIPU_API_KEY", "OPENROUTER_API_KEY", "VSLLM_API_KEY",
+                        "MINIMAX_API_KEY", "KIMI_API_KEY", "CATALW_API_KEY",
+                        "ALLOWED_ID", "WEB_HOST", "WEB_PORT"}
+
     updates: dict[str, str] = {}
 
     for cfg in CONFIG_DEFS:
@@ -343,5 +350,46 @@ def _update_env_multi(updates: dict[str, str]) -> None:
     if not content.endswith("\n"):
         content += "\n"
 
-    env_path.write_text(content, encoding="utf-8")
-    logger.debug("Wrote %d config values to %s", len(updates), env_path)
+    # ── 原子写入 .env（tmp + fsync + replace + 读回校验）──
+    import os
+    import tempfile
+
+    tmp = None
+    try:
+        # 写入临时文件
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=str(env_path.parent), prefix=".tmp_env_", suffix=".env",
+            delete=False, encoding="utf-8",
+        ) as f:
+            tmp = f.name
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # 读回校验
+        try:
+            with open(tmp, "r", encoding="utf-8") as vf:
+                verified = vf.read()
+            if not verified or len(verified) < 10:
+                raise ValueError("Verified content too short")
+            # 校验关键 key 是否写入正确
+            for key in updates:
+                if f"{key}=" not in verified:
+                    logger.warning("Key %s not found in verified .env content", key)
+        except Exception as ve:
+            logger.error(".env write verification failed: %s", ve)
+            if tmp:
+                os.remove(tmp)
+            raise
+
+        # 原子替换
+        os.replace(tmp, str(env_path))
+        logger.debug("Atomic wrote %d config values to %s", len(updates), env_path)
+
+    except Exception:
+        if tmp:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+        raise

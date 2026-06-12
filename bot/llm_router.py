@@ -52,6 +52,7 @@ def _llm_usage_log_path() -> Path:
 # ── 线程锁 ──
 _state_lock = threading.RLock()
 _usage_lock = threading.Lock()
+_providers_config_lock = threading.RLock()  # 保护 providers.yaml 读写
 
 
 def _backup_providers_yaml(path: Path) -> None:
@@ -244,13 +245,14 @@ def _classify_error(exc: Exception) -> tuple[str, bool]:
         if status in (401, 403) and any(kw in lower for kw in _AUTH_ERROR_KEYWORDS):
             return ("auth_error", False)
 
-        # 4. 模型不存在
-        if any(kw in lower for kw in _MODEL_NOT_FOUND_KEYWORDS):
-            return ("model_not_found", False)
-
-        # 5. 免费通道不可用
+        # 4. 免费通道不可用（必须在 model_not_found 之前检查，
+        #    因为中转站可能返回 "model_not_found: No available channel..."）
         if any(kw in lower for kw in _NO_CHANNEL_KEYWORDS):
             return ("no_channel", False)
+
+        # 5. 模型不存在（真正的模型名错误）
+        if any(kw in lower for kw in _MODEL_NOT_FOUND_KEYWORDS):
+            return ("model_not_found", False)
 
         # 6. 服务临时不可用 (5xx)
         if status in _RETRYABLE_STATUS_CODES:
@@ -336,21 +338,23 @@ class LLMRouter:
         path = _providers_yaml_path()
         if not path.exists():
             logger.warning("providers.yaml not found at %s, using empty config", path)
-            self._providers_config = []
-            self._providers_by_name = {}
+            with _providers_config_lock:
+                self._providers_config = []
+                self._providers_by_name = {}
             return
 
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             raw = data.get("providers", []) if isinstance(data, dict) else []
-            self._providers_config = raw
-            self._providers_by_name = {}
-            for p in raw:
-                name = p.get("name", "")
-                if name:
-                    self._providers_by_name[name] = p
-            self._providers_mtime = path.stat().st_mtime
+            with _providers_config_lock:
+                self._providers_config = raw
+                self._providers_by_name = {}
+                for p in raw:
+                    name = p.get("name", "")
+                    if name:
+                        self._providers_by_name[name] = p
+                self._providers_mtime = path.stat().st_mtime
             logger.debug("Loaded %d providers from providers.yaml", len(raw))
         except Exception as e:
             logger.warning("Failed to reload providers.yaml: %s", e)
@@ -666,45 +670,47 @@ class LLMRouter:
         return True
 
     def _set_config_enabled(self, name: str, enabled: bool) -> None:
-        """修改 providers.yaml 中某个 provider 的 enabled 字段（原子写入）。"""
+        """修改 providers.yaml 中某个 provider 的 enabled 字段（原子写入，线程安全）。"""
         path = _providers_yaml_path()
         if not path.exists():
             return
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if not data or "providers" not in data:
-                return
-            for p in data["providers"]:
-                if p.get("name") == name:
-                    p["enabled"] = enabled
-                    break
-            # 原子写入（自动备份 + tmp + fsync + 校验 + replace）
-            from bot.safe_io import atomic_write_yaml
-            atomic_write_yaml(path, data)
-            # 立即重载
-            self._reload_providers()
-            self._load_and_merge_state()
-        except Exception as e:
-            logger.warning("Failed to update providers.yaml for %s: %s", name, e)
+        with _providers_config_lock:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if not data or "providers" not in data:
+                    return
+                for p in data["providers"]:
+                    if p.get("name") == name:
+                        p["enabled"] = enabled
+                        break
+                # 原子写入（自动备份 + tmp + fsync + 校验 + replace）
+                from bot.safe_io import atomic_write_yaml
+                atomic_write_yaml(path, data)
+                # 立即重载
+                self._reload_providers()
+                self._load_and_merge_state()
+            except Exception as e:
+                logger.warning("Failed to update providers.yaml for %s: %s", name, e)
 
     def save_providers_config(self, providers_list: list[dict]) -> bool:
-        """用新配置覆盖 providers.yaml（原子写入，带备份+校验）。返回是否成功。"""
+        """用新配置覆盖 providers.yaml（原子写入，带备份+校验，线程安全）。"""
         path = _providers_yaml_path()
         if not path.exists():
             return False
-        try:
-            data = {"providers": providers_list}
-            from bot.safe_io import atomic_write_yaml
-            atomic_write_yaml(path, data)
-            # 立即重载
-            self._reload_providers()
-            self._load_and_merge_state()
-            logger.info("providers.yaml saved and reloaded")
-            return True
-        except Exception as e:
-            logger.warning("Failed to save providers.yaml: %s", e)
-            return False
+        with _providers_config_lock:
+            try:
+                data = {"providers": providers_list}
+                from bot.safe_io import atomic_write_yaml
+                atomic_write_yaml(path, data)
+                # 立即重载
+                self._reload_providers()
+                self._load_and_merge_state()
+                logger.info("providers.yaml saved and reloaded")
+                return True
+            except Exception as e:
+                logger.warning("Failed to save providers.yaml: %s", e)
+                return False
 
     def clear_provider_state(self, name: str) -> bool:
         """清除某个 provider 的 failures/cooldown/exhausted。返回是否成功。"""
@@ -990,10 +996,14 @@ class LLMRouter:
     ) -> tuple[str, str, dict | None]:
         """执行一次 provider API 调用。返回 (reply, finish_reason, usage)。"""
 
-        base_url = provider_config.get("base_url", "")
+        raw_base_url = provider_config.get("base_url", "")
         model = provider_config.get("model", "")
         thinking_enabled = provider_config.get("thinking_enabled", False)
         provider_name = provider_config.get("name", "unknown")
+
+        # 统一拼接 chat completions 端点
+        from bot.utils import build_chat_url
+        chat_url = build_chat_url(raw_base_url)
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -1001,7 +1011,7 @@ class LLMRouter:
         }
 
         # OpenRouter 需要额外的 HTTP-Referer 头
-        if "openrouter" in base_url.lower():
+        if "openrouter" in raw_base_url.lower():
             headers["HTTP-Referer"] = "https://t.me/roleplay_bot"
             headers["X-Title"] = "RoleplayBot"
 
@@ -1021,7 +1031,7 @@ class LLMRouter:
         try:
             response = await asyncio.to_thread(
                 requests.post,
-                base_url,
+                chat_url,
                 headers=headers,
                 json=payload,
                 timeout=timeout,
@@ -1057,7 +1067,7 @@ class LLMRouter:
                     payload.pop("thinking", None)
                     response = await asyncio.to_thread(
                         requests.post,
-                        base_url,
+                        chat_url,
                         headers=headers,
                         json=payload,
                         timeout=timeout,
@@ -1100,15 +1110,18 @@ class LLMRouter:
                     "error": f"缺少 API Key（环境变量 {api_key_env}）", "model": p_config.get("model", "")}
 
         model = p_config.get("model", "")
-        base_url = p_config.get("base_url", "")
+        raw_base_url = p_config.get("base_url", "")
         timeout = p_config.get("timeout_chat_seconds", 30)
+
+        from bot.utils import build_chat_url
+        chat_url = build_chat_url(raw_base_url)
 
         messages = [{"role": "user", "content": "请只回复 OK"}]
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        if "openrouter" in base_url.lower():
+        if "openrouter" in raw_base_url.lower():
             headers["HTTP-Referer"] = "https://t.me/roleplay_bot"
             headers["X-Title"] = "RoleplayBot"
 
@@ -1124,7 +1137,7 @@ class LLMRouter:
 
         start = time.time()
         try:
-            resp = requests.post(base_url, headers=headers, json=payload, timeout=timeout)
+            resp = requests.post(chat_url, headers=headers, json=payload, timeout=timeout)
             resp.raise_for_status()
             data = resp.json()
             if "choices" in data and data["choices"]:
@@ -1237,21 +1250,9 @@ class LLMRouter:
         if not base_url or not api_key:
             return {"ok": False, "models": [], "error": "base_url 和 api_key 不能为空"}
 
-        # 推导 models URL
-        parsed = urlparse(base_url)
-        path = parsed.path
-        if path.endswith("/chat/completions"):
-            models_path = path[:-len("/chat/completions")] + "/models"
-        elif path.endswith("/completions"):
-            models_path = path[:-len("/completions")] + "/models"
-        else:
-            # Fallback: 替换路径为 /v1/models
-            models_path = "/v1/models"
-
-        models_url = urlunparse((
-            parsed.scheme, parsed.netloc, models_path,
-            parsed.params, parsed.query, parsed.fragment,
-        ))
+        # 使用统一的 URL 构建函数
+        from bot.utils import build_models_url
+        models_url = build_models_url(base_url)
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -1308,114 +1309,128 @@ class LLMRouter:
     ]
 
     def edit_provider(self, name: str, updates: dict) -> bool:
-        """编辑某个 provider 的字段（仅允许 _EDITABLE_FIELDS 中的字段）。
-        
+        """编辑某个 provider 的字段（仅允许 _EDITABLE_FIELDS 中的字段，线程安全）。
+
         不允许修改 name（name 是唯一标识符）。
         返回是否成功。
         """
         path = _providers_yaml_path()
         if not path.exists():
             return False
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if not data or "providers" not in data:
+        with _providers_config_lock:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if not data or "providers" not in data:
+                    return False
+
+                found = False
+                for p in data["providers"]:
+                    if p.get("name") == name:
+                        for key in self._EDITABLE_FIELDS:
+                            if key in updates:
+                                val = updates[key]
+                                # base_url 规范化
+                                if key == "base_url" and isinstance(val, str):
+                                    from bot.utils import normalize_base_url
+                                    val = normalize_base_url(val)
+                                p[key] = val
+                        found = True
+                        break
+
+                if not found:
+                    return False
+
+                from bot.safe_io import atomic_write_yaml
+                atomic_write_yaml(path, data)
+                self._reload_providers()
+                self._load_and_merge_state()
+                logger.info("Provider '%s' edited: %s", name, [k for k in updates])
+                return True
+            except Exception as e:
+                logger.warning("Failed to edit provider %s: %s", name, e)
                 return False
-
-            found = False
-            for p in data["providers"]:
-                if p.get("name") == name:
-                    for key in self._EDITABLE_FIELDS:
-                        if key in updates:
-                            p[key] = updates[key]
-                    found = True
-                    break
-
-            if not found:
-                return False
-
-            from bot.safe_io import atomic_write_yaml
-            atomic_write_yaml(path, data)
-            self._reload_providers()
-            self._load_and_merge_state()
-            logger.info("Provider '%s' edited: %s", name, [k for k in updates])
-            return True
-        except Exception as e:
-            logger.warning("Failed to edit provider %s: %s", name, e)
-            return False
 
     def add_provider(self, provider_config: dict) -> bool:
-        """添加一个新的 provider。name 必须唯一。返回是否成功。"""
+        """添加一个新的 provider。name 必须唯一。返回是否成功（线程安全）。"""
         name = (provider_config.get("name") or "").strip()
         if not name:
             return False
-        if name in self._providers_by_name:
-            logger.warning("Provider '%s' already exists, cannot add", name)
-            return False
 
         path = _providers_yaml_path()
         if not path.exists():
             return False
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if not data:
-                data = {"providers": []}
-            if "providers" not in data:
-                data["providers"] = []
 
-            new_p = {
-                "name": name,
-                "enabled": provider_config.get("enabled", True),
-                "priority": int(provider_config.get("priority", 99)),
-                "task_types": provider_config.get("task_types", ["chat"]),
-                "api_key_env": provider_config.get("api_key_env", ""),
-                "base_url": provider_config.get("base_url", ""),
-                "model": provider_config.get("model", ""),
-                "timeout_chat_seconds": int(provider_config.get("timeout_chat_seconds", 60)),
-                "timeout_background_seconds": int(provider_config.get("timeout_background_seconds", 30)),
-                "max_retries": int(provider_config.get("max_retries", 1)),
-                "cooldown_seconds": int(provider_config.get("cooldown_seconds", 300)),
-                "max_consecutive_failures": int(provider_config.get("max_consecutive_failures", 3)),
-                "disable_on_quota_exhausted": bool(provider_config.get("disable_on_quota_exhausted", True)),
-                "thinking_enabled": bool(provider_config.get("thinking_enabled", False)),
-            }
+        with _providers_config_lock:
+            try:
+                if name in self._providers_by_name:
+                    logger.warning("Provider '%s' already exists, cannot add", name)
+                    return False
 
-            data["providers"].append(new_p)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = yaml.safe_load(f)
+                except Exception:
+                    data = None
+                if not data:
+                    data = {"providers": []}
+                if "providers" not in data:
+                    data["providers"] = []
 
-            from bot.safe_io import atomic_write_yaml
-            atomic_write_yaml(path, data)
-            self._reload_providers()
-            self._load_and_merge_state()
-            logger.info("Provider '%s' added", name)
-            return True
-        except Exception as e:
-            logger.warning("Failed to add provider %s: %s", name, e)
-            return False
+                from bot.utils import normalize_base_url
+                new_p = {
+                    "name": name,
+                    "enabled": provider_config.get("enabled", True),
+                    "priority": int(provider_config.get("priority", 99)),
+                    "task_types": provider_config.get("task_types", ["chat"]),
+                    "api_key_env": provider_config.get("api_key_env", ""),
+                    "base_url": normalize_base_url(provider_config.get("base_url", "")),
+                    "model": provider_config.get("model", ""),
+                    "timeout_chat_seconds": int(provider_config.get("timeout_chat_seconds", 60)),
+                    "timeout_background_seconds": int(provider_config.get("timeout_background_seconds", 30)),
+                    "max_retries": int(provider_config.get("max_retries", 1)),
+                    "cooldown_seconds": int(provider_config.get("cooldown_seconds", 300)),
+                    "max_consecutive_failures": int(provider_config.get("max_consecutive_failures", 3)),
+                    "disable_on_quota_exhausted": bool(provider_config.get("disable_on_quota_exhausted", True)),
+                    "thinking_enabled": bool(provider_config.get("thinking_enabled", False)),
+                }
 
-    def delete_provider(self, name: str) -> bool:
-        """删除一个 provider。返回是否成功。"""
-        path = _providers_yaml_path()
-        if not path.exists():
-            return False
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if not data or "providers" not in data:
+                data["providers"].append(new_p)
+
+                from bot.safe_io import atomic_write_yaml
+                atomic_write_yaml(path, data)
+                self._reload_providers()
+                self._load_and_merge_state()
+                logger.info("Provider '%s' added", name)
+                return True
+            except Exception as e:
+                logger.warning("Failed to add provider %s: %s", name, e)
                 return False
 
-            original_count = len(data["providers"])
-            data["providers"] = [p for p in data["providers"] if p.get("name") != name]
-
-            if len(data["providers"]) == original_count:
-                return False  # 没找到
-
-            from bot.safe_io import atomic_write_yaml
-            atomic_write_yaml(path, data)
-            self._reload_providers()
-            self._load_and_merge_state()
-            logger.info("Provider '%s' deleted", name)
-            return True
-        except Exception as e:
-            logger.warning("Failed to delete provider %s: %s", name, e)
+    def delete_provider(self, name: str) -> bool:
+        """删除一个 provider。返回是否成功（线程安全）。"""
+        path = _providers_yaml_path()
+        if not path.exists():
             return False
+        with _providers_config_lock:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                if not data or "providers" not in data:
+                    return False
+
+                original_count = len(data["providers"])
+                data["providers"] = [p for p in data["providers"] if p.get("name") != name]
+
+                if len(data["providers"]) == original_count:
+                    return False  # 没找到
+
+                from bot.safe_io import atomic_write_yaml
+                atomic_write_yaml(path, data)
+                self._reload_providers()
+                self._load_and_merge_state()
+                logger.info("Provider '%s' deleted", name)
+                return True
+            except Exception as e:
+                logger.warning("Failed to delete provider %s: %s", name, e)
+                return False

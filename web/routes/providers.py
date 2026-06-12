@@ -163,7 +163,10 @@ def test_provider():
     result = router.test_connection(name)
     audit_log("模型管理", f"测试连接: {name} — {'成功' if result['ok'] else '失败'}")
     if not result["ok"]:
-        logger.warning("Provider test failed: %s — %s", name, result.get("error", ""))
+        from bot.utils import filter_sensitive
+        safe_error = filter_sensitive(result.get("error", ""))
+        logger.warning("Provider test failed: %s — %s", name, safe_error)
+        result["error"] = safe_error
     return jsonify(result)
 
 
@@ -183,7 +186,8 @@ def fetch_models():
     if not api_key:
         return jsonify({"ok": False, "models": [], "error": "API Key 不能为空"})
 
-    result = router.fetch_models_from_api(base_url, api_key)
+    from bot.utils import normalize_base_url
+    result = router.fetch_models_from_api(normalize_base_url(base_url), api_key)
     audit_log("模型管理", f"获取模型列表: {base_url[:60]} — {'成功' if result['ok'] else '失败'}")
     return jsonify(result)
 

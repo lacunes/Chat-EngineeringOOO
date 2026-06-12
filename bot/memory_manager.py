@@ -542,25 +542,38 @@ class MemoryManager:
     # ── 记忆状态查询（供 Web 面板使用）──
 
     def get_memory_status(self) -> dict:
-        """返回记忆健康状况摘要。"""
+        """返回记忆健康状况摘要。
+
+        结构（注意：字段名用 count 而非 items，避免与 dict.items() 方法冲突）：
+        {
+            "world": str,
+            "checked_at": str,
+            "last_save_ok": bool,
+            "last_save_time": str,
+            "was_recovered": bool,
+            "chat":    {"count": int, "size": int, "mtime": str, "path": str, "ok": bool},
+            "long":    {"count": int, "size": int, "mtime": str, "path": str, "ok": bool},
+            "summary": {"count": int, "size": int, "mtime": str, "path": str, "ok": bool},
+        }
+        """
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        def file_info(p: Path) -> dict:
+        def file_info(p: Path, label: str) -> dict:
             if not p.exists():
-                return {"exists": False, "size": 0, "mtime": "-", "items": 0, "path": str(p)}
+                return {"ok": False, "count": 0, "size": 0, "mtime": "-", "path": str(p)}
             try:
                 st = p.stat()
                 data = json.loads(p.read_text(encoding="utf-8"))
-                items = len(data) if isinstance(data, list) else 0
+                count = len(data) if isinstance(data, list) else 0
                 return {
-                    "exists": True,
+                    "ok": True,
+                    "count": count,
                     "size": st.st_size,
                     "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                    "items": items,
                     "path": str(p),
                 }
             except Exception:
-                return {"exists": True, "size": 0, "mtime": "?", "items": 0, "corrupted": True, "path": str(p)}
+                return {"ok": False, "count": 0, "size": 0, "mtime": "?", "path": str(p), "corrupted": True}
 
         return {
             "world": self.world_name,
@@ -568,7 +581,7 @@ class MemoryManager:
             "last_save_ok": self._last_save_ok,
             "last_save_time": self._last_save_time or "(尚未保存)",
             "was_recovered": self._was_recovered,
-            "chat": file_info(self._chat_path),
-            "long_term": file_info(self._long_term_path),
-            "summary": file_info(self._summary_path),
+            "chat": file_info(self._chat_path, "chat"),
+            "long": file_info(self._long_term_path, "long"),
+            "summary": file_info(self._summary_path, "summary"),
         }

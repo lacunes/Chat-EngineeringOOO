@@ -10,9 +10,9 @@
   <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:13px;">
     <div><b>当前世界：</b>{{ ctx.world.WORLD_NAME }}</div>
     <div><b>短期记忆文件：</b><code>{{ mem_status.chat.path }}</code></div>
-    <div><b>短期消息数：</b>{{ mem_status.chat.items }} 条</div>
-    <div><b>长期记忆文件：</b><code>{{ mem_status.long_term.path }}</code></div>
-    <div><b>长期条目数：</b>{{ mem_status.long_term.items }} 条</div>
+    <div><b>短期消息数：</b>{{ mem_status.chat.count }} 条</div>
+    <div><b>长期记忆文件：</b><code>{{ mem_status.long.path }}</code></div>
+    <div><b>长期条目数：</b>{{ mem_status.long.count }} 条</div>
     <div><b>摘要文件：</b><code>{{ mem_status.summary.path }}</code></div>
     <div><b>最近保存：</b>{{ mem_status.last_save_time }} {% if mem_status.last_save_ok %}✅{% else %}❌{% endif %}</div>
     <div><b>最近备份：</b>{{ mem_status.chat.mtime }}</div>

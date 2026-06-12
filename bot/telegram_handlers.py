@@ -151,7 +151,7 @@ class RoleplayBot:
         mem_status = self.memory.get_memory_status()
         memory_info = []
         memory_info.append(f"文件：{mem_status['chat'].get('path', '?')}")
-        memory_info.append(f"对话：{mem_status['chat']['items']} 条")
+        memory_info.append(f"对话：{mem_status['chat']['count']} 条")
         memory_info.append(f"长期：{self.memory.long_memory_count} 条（真实记忆）")
         memory_info.append(f"保存：{mem_status['last_save_time']} {'✅' if mem_status['last_save_ok'] else '❌'}")
         if mem_status['was_recovered']:

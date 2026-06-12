@@ -33,7 +33,7 @@ Telegram Bot + Web 控制台 + Multi-provider LLM Router + WorldManager + Memory
 # 🏗 架构设计
 
 ```text
-用户 ──→ Telegram ──→ telegram_handlers.py ──→ DeepSeekClient ──→ LLMRouter
+用户 ──→ Telegram ──→ telegram_handlers.py ──→ LLMClient (兼容层) ──→ LLMRouter
  │                         │                         │                │
  │                    npc_manager.py                  │          providers.yaml
  │                    (NPC主动行为)                    │          provider_state.json
@@ -75,7 +75,7 @@ project/
 │
 ├── bot/
 │   ├── telegram_handlers.py    # Telegram 命令与消息处理
-│   ├── deepseek_client.py      # LLM 调用兼容层（内部转发到 LLMRouter）
+│   ├── deepseek_client.py      # LLMClient 兼容层（保留旧接口，内部转发到 LLMRouter）
 │   ├── llm_router.py           # 多供应商路由器
 │   ├── memory_manager.py       # 记忆管理
 │   ├── world_manager.py        # 世界数据热加载与切换
@@ -136,7 +136,7 @@ providers:
     priority: 1
     task_types: ["chat", "memory", "summary", "relation", "background"]
     api_key_env: "ZHIPU_API_KEY"
-    base_url: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
     model: "glm-4.5-air"
     timeout_chat_seconds: 60
     timeout_background_seconds: 30
@@ -148,6 +148,8 @@ providers:
 ```
 
 每个 provider 通过 `api_key_env` 指定环境变量名（在 `.env` 中配置对应的 API Key）。支持任意兼容 OpenAI Chat Completions 格式的 API。
+
+`base_url` 只需填写到基础路径（如 `https://xxx/v1`），代码会自动拼接 `/chat/completions` 和 `/models`。如果用户填写了完整路径也会自动规范化。
 
 ## Web Provider 管理页
 

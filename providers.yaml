@@ -18,7 +18,7 @@ providers:
     priority: 1
     task_types: ["chat", "memory", "summary", "relation", "background"]
     api_key_env: "ZHIPU_API_KEY"
-    base_url: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
     model: "glm-4.5-air"
     timeout_chat_seconds: 60
     timeout_background_seconds: 30
@@ -33,7 +33,7 @@ providers:
     priority: 2
     task_types: ["chat"]
     api_key_env: "OPENROUTER_API_KEY"
-    base_url: "https://openrouter.ai/api/v1/chat/completions"
+    base_url: "https://openrouter.ai/api/v1"
     model: "qwen/qwen3-235b-a22b-2507"
     timeout_chat_seconds: 60
     timeout_background_seconds: 30
@@ -48,7 +48,7 @@ providers:
     priority: 3
     task_types: ["chat", "memory", "summary", "relation", "background"]
     api_key_env: "DEEPSEEK_API_KEY"
-    base_url: "https://api.deepseek.com/chat/completions"
+    base_url: "https://api.deepseek.com"
     model: "deepseek-v4-flash"
     timeout_chat_seconds: 60
     timeout_background_seconds: 30
