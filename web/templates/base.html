@@ -73,7 +73,13 @@
         <span class="dot green"></span> Bot 运行中
       </span>
       <span>世界：<strong>{{ ctx.world.WORLD_NAME }}</strong></span>
-      <span>模型：<strong>{{ ctx.client.model_name }}</strong></span>
+      <span>模型：<strong>
+        {% if ctx.client.router %}
+          {{ ctx.client.router.get_dashboard_status().get('current_model') or '等待首次调用' }}
+        {% else %}
+          —
+        {% endif %}
+      </strong></span>
       <span class="spacer"></span>
       <span>运行：{{ uptime or '--' }}</span>
     </div>

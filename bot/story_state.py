@@ -6,6 +6,7 @@
 
 import json
 import logging
+import threading
 from pathlib import Path
 
 logger = logging.getLogger("bot.story")
@@ -30,6 +31,7 @@ class StoryStateManager:
 
     def __init__(self, world_name: str, memory_dir: Path):
         self.file_path = memory_dir / f"{world_name}_story_state.json"
+        self._lock = threading.Lock()
         self.state: dict = dict(DEFAULT_STORY_STATE)
         self._load()
 
@@ -55,8 +57,9 @@ class StoryStateManager:
             logger.error("Failed to load story state: %s", exc)
 
     def save(self) -> None:
-        from bot.safe_io import atomic_write_json
-        atomic_write_json(self.file_path, self.state)
+        with self._lock:
+            from bot.safe_io import atomic_write_json
+            atomic_write_json(self.file_path, self.state)
 
     def update(self, updates: dict) -> None:
         """批量更新状态字段。只接受已知字段。"""

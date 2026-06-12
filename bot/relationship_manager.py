@@ -7,6 +7,7 @@
 import json
 import logging
 import re
+import threading
 
 from config import prompts, settings
 
@@ -30,6 +31,7 @@ class RelationshipManager:
         settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         self.world_name = world_name
         self.file_path = settings.MEMORY_DIR / f"{world_name}_relationships.json"
+        self._lock = threading.Lock()
 
         self.characters: list[str] = []
         self.relations: dict[str, dict] = {}       # "角色A->角色B": {...}
@@ -59,7 +61,8 @@ class RelationshipManager:
             logger.error("Failed to load relationships: %s", exc)
 
     def save(self) -> None:
-        self._atomic_write()
+        with self._lock:
+            self._atomic_write()
 
     def _atomic_write(self) -> None:
         from bot.safe_io import atomic_write_json

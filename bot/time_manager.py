@@ -6,6 +6,7 @@
 
 import json
 import logging
+import threading
 import time as _time
 
 from config import prompts, settings
@@ -47,6 +48,7 @@ class TimeManager:
         settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         self.world_name = world_name
         self.file_path = settings.MEMORY_DIR / f"{world_name}_time_state.json"
+        self._lock = threading.Lock()
 
         self.day: int = 1
         self.time_period: str = "上午"
@@ -81,7 +83,8 @@ class TimeManager:
             logger.error("Failed to load time state: %s", exc)
 
     def save(self) -> None:
-        self._atomic_write()
+        with self._lock:
+            self._atomic_write()
 
     def _atomic_write(self) -> None:
         from bot.safe_io import atomic_write_json

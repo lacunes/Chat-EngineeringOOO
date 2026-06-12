@@ -1,0 +1,801 @@
+请对项目做一次“架构收敛与旧逻辑清理”。本次任务不要继续新增大功能，而是把项目从补丁堆叠状态整理成可维护结构。（也就是“清除屎山代码计划”）
+
+项目现在已经从早期的 DeepSeek 单模型 Telegram Bot 演进成：
+
+* Telegram 聊天入口
+* Web 管理台
+* Multi-provider LLMRouter
+* providers.yaml 模型配置
+* provider_state.json 模型运行状态
+* WorldManager 世界热切换
+* data/worlds/*.yaml 世界文件
+* MemoryManager 短期/长期记忆
+* 关系、时间、NPC、摘要等辅助系统
+
+现在的问题是：旧架构残留和新架构并存，导致 Web 页面、Bot 状态、配置中心、模型管理、记忆系统之间不一致。
+
+请严格按下面 5 个阶段执行。每个阶段完成后先自测、提交，再进入下一阶段。不要一次性乱改所有文件。
+最后要保证docs下项目开发文档和README.md处于最新状态。
+
+---
+
+# 第一阶段：确定唯一权威数据源，清理旧入口
+
+目标：先统一“谁说了算”，避免多个页面读不同状态。
+
+## 1. 当前模型的唯一权威来源
+
+当前模型状态只允许来自：
+
+```text
+LLMRouter / provider_state.json / providers.yaml
+```
+
+不允许继续从以下旧字段判断当前模型：
+
+```text
+settings.MODEL_NAME
+.env MODEL_NAME
+ctx.client.model_name
+DeepSeekClient.model_name
+```
+
+请修改：
+
+* Web 顶栏
+* 仪表盘
+* 模型管理页
+* Telegram `/status`
+* 日志状态展示
+
+它们必须统一使用 `LLMRouter.get_status()` 或等价统一接口。
+
+请让 `LLMRouter.get_status()` 至少返回：
+
+```python
+{
+    "provider_mode": "auto",
+    "manual_provider": None,
+    "current_provider": "...",
+    "current_model": "...",
+    "last_success_provider": "...",
+    "last_success_model": "...",
+    "last_fallback_reason": "...",
+    "providers": [...]
+}
+```
+
+如果当前模型未知，不要显示旧默认值，显示“等待首次调用”或“当前未确认”。
+
+## 2. 当前世界的唯一权威来源
+
+当前世界只允许来自：
+
+```text
+WorldManager / data/runtime_state.json
+```
+
+不允许配置中心继续通过 `.env ACTIVE_WORLD` 做 Web 切换入口。
+
+`ACTIVE_WORLD` 可以作为启动兜底，但不能作为 Web 当前世界的权威来源。
+
+请确保：
+
+* Web 顶栏当前世界；
+* 仪表盘当前世界；
+* 世界编辑器；
+* 记忆管理；
+* Telegram `/status`；
+
+全部显示同一个 active_world。
+
+## 3. 配置中心删除过期控制项
+
+从配置中心删除：
+
+```text
+ACTIVE_WORLD
+MODEL_NAME
+```
+
+配置中心不要再做：
+
+* 世界切换；
+* 模型切换；
+* 读取 `worlds/*.py`；
+* 提示“切换世界需重启 Bot”。
+
+世界切换归世界编辑器 / WorldManager。
+
+模型切换归模型管理页 / LLMRouter。
+
+配置中心只保留行为参数，例如：
+
+* 回复长度；
+* 上下文长度；
+* 自动分段阈值；
+* 续写次数；
+* 记忆参数；
+* 关系参数；
+* 时间参数；
+* NPC 参数；
+* Web 安全参数。
+
+## 第一阶段验收
+
+完成后测试：
+
+1. Web 顶栏、仪表盘、模型管理页、Telegram `/status` 显示的模型一致。
+2. Web 顶栏、仪表盘、世界编辑器、记忆管理、Telegram `/status` 显示的世界一致。
+3. 配置中心不再出现“当前世界”和“使用模型”。
+4. 配置中心不再读取 `worlds/*.py`。
+5. `.env MODEL_NAME` 不再影响当前模型显示。
+6. `.env ACTIVE_WORLD` 不再作为 Web 切换世界入口。
+
+---
+
+# 第二阶段：修复 Web Provider 管理页
+
+目标：模型管理页必须真正可用，不能只是展示。
+
+## 1. 修复按钮无效
+
+当前模型管理页里的按钮包括：
+
+* 测试
+* 编辑
+* 清除
+* 启用 / 禁用
+* 删除
+* 添加 Provider
+* 获取模型列表
+
+请检查 `web/routes/providers.py` 和 `web/templates/providers.html`。
+
+不要把 provider name 放进 URL path，因为 provider name 或 model 可能包含：
+
+```text
+/
+[]
+()
+@
+:
+空格
+.
+-
+_
+```
+
+所有操作统一改为 POST body 传 provider 名称。
+
+推荐接口：
+
+```text
+POST /providers/toggle
+POST /providers/clear
+POST /providers/test
+POST /providers/edit
+POST /providers/delete
+POST /providers/add
+POST /providers/fetch-models
+```
+
+后端从：
+
+```python
+request.form.get("name")
+```
+
+或 JSON body 中读取 provider 名。
+
+前端用普通 form 或稳定 fetch。每个 POST 必须带 CSRF token。
+
+如果用 form：
+
+```html
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="name" value="{{ provider.name }}">
+```
+
+如果用 fetch：
+
+```js
+headers: {
+  "X-CSRF-Token": csrfToken
+}
+```
+
+每个按钮必须有成功/失败反馈。
+
+## 2. 修复特殊字符模型名
+
+模型名必须完全当作字符串，不要做严格正则限制。
+
+必须支持：
+
+```text
+Qwen/Qwen3.6-35B-A3B
+Qwen/Qwen3.6-35B-A3B[Free]
+DeepSeek-V3[Free]
+claude-sonnet-4@anthropic
+MiniMax-M3
+```
+
+保存 YAML 时，`model` 字段必须保持字符串。
+
+建议保存为：
+
+```yaml
+model: "Qwen/Qwen3.6-35B-A3B[Free]"
+```
+
+不要让 `[]` 被 YAML 当作列表。
+
+## 3. 统一 base_url 语义
+
+`providers.yaml` 里的 `base_url` 必须统一保存到 base endpoint，例如：
+
+```yaml
+base_url: "https://vsllm.com/v1"
+```
+
+不要保存成：
+
+```yaml
+base_url: "https://vsllm.com/v1/chat/completions"
+```
+
+新增函数：
+
+```python
+normalize_base_url(url: str) -> str
+```
+
+规则：
+
+* 去掉尾部 `/`
+* 如果以 `/chat/completions` 结尾，裁剪掉
+* 如果以 `/completions` 结尾，按兼容规则裁剪
+* 尽量保留到 `/v1`
+* 聊天请求时内部拼 `/chat/completions`
+* 获取模型列表时内部拼 `/models`
+
+如果用户在 Web 里填了完整 chat endpoint，应自动规范化成 base endpoint。
+
+Web 页面可以同时显示：
+
+```text
+base_url
+chat endpoint
+models endpoint
+```
+
+但 providers.yaml 只保存 base_url。
+
+## 4. 模型列表获取
+
+新增或修复“获取模型列表”功能。
+
+用户填写：
+
+* base_url
+* api_key_env
+
+后，后端用对应 API Key 请求：
+
+```text
+GET {base_url}/models
+```
+
+返回模型列表。
+
+前端显示为可编辑下拉框：
+
+* 可以从列表选择；
+* 也可以手动输入；
+* 手动输入不限制特殊字符。
+
+## 第二阶段验收
+
+完成后测试：
+
+1. 点击“测试”有结果。
+2. 点击“编辑”能看到已有配置。
+3. 编辑保存后 providers.yaml 正确更新。
+4. 点击“禁用/启用”后状态正确变化。
+5. 点击“清除”后 failures/cooldown/exhausted 清空。
+6. 删除前二次确认，删除后 providers.yaml 更新。
+7. provider name 包含 `/`、`[]`、空格时按钮仍有效。
+8. model 名包含 `[]` 时保存和读取都不报错。
+9. 用户填 `/v1/chat/completions` 会自动规范为 `/v1`。
+10. 获取模型列表可用。
+
+---
+
+# 第三阶段：修复记忆系统污染与显示错误
+
+目标：记忆系统要稳定、干净、可诊断。
+
+## 1. 修复长期记忆污染
+
+当前长期记忆会把这些内容当成记忆：
+
+````text
+```json
+[
+]
+````
+
+````
+
+这是模型返回 JSON 代码块后解析失败导致的。
+
+请新增统一清洗函数：
+
+```python
+parse_memory_items(raw) -> list[str]
+clean_memory_items(items) -> list[str]
+````
+
+规则：
+
+1. 如果 raw 是字符串，先去掉 Markdown 代码块包裹：
+
+   * ```json
+     ```
+   * ```
+     ```
+2. 尝试 `json.loads()`。
+3. 如果解析结果是 list，只保留字符串元素。
+4. 如果解析结果是 dict，尝试读取：
+
+   * memories
+   * memory
+   * items
+   * facts
+   * results
+5. 如果 JSON 解析失败，再按行兜底。
+6. 兜底按行时过滤：
+
+   * ```json
+     ```
+   * ```
+     ```
+   * [
+   * ]
+   * {
+   * }
+   * ,
+   * 空行
+   * 纯标点符号行
+   * 过短无意义行
+7. 去除每条前后多余引号、逗号、空格。
+8. 去重。
+9. 优先保留以下格式：
+
+   * `[hard_fact] ...`
+   * `[relationship] ...`
+   * `[plot_fact] ...`
+   * `[character_state] ...`
+   * `[preference] ...`
+10. 保存 long memory 前必须再次清洗。
+11. 不允许保存 ` ```json`、`[`、`]`、` ``` ` 作为长期记忆。
+
+## 2. 清理已有脏长期记忆
+
+提供一个 Web 按钮或维护函数：
+
+```text
+清理长期记忆污染
+```
+
+要求：
+
+1. 清理前备份长期记忆文件。
+2. 删除垃圾条目。
+3. 保留真实记忆。
+4. 显示：
+
+   * 清理前条数；
+   * 清理后条数；
+   * 删除条数；
+   * 备份路径。
+
+## 3. 修复记忆健康状态显示 built-in method items
+
+仪表盘里不要再显示：
+
+```text
+<built-in method items of dict object at ...>
+```
+
+这通常是模板把 `dict.items` 当字段显示。
+
+请修改 `MemoryManager.get_memory_status()` 返回结构，例如：
+
+```python
+{
+    "short": {
+        "count": 79,
+        "path": "...",
+        "size": "...",
+        "mtime": "...",
+        "ok": True
+    },
+    "long": {
+        "count": 12,
+        "path": "...",
+        "size": "...",
+        "mtime": "...",
+        "ok": True
+    },
+    "summary": {
+        "count": 1,
+        "path": "...",
+        "size": "...",
+        "mtime": "...",
+        "ok": True
+    }
+}
+```
+
+模板中使用：
+
+```jinja2
+{{ memory_status.short.count }}
+```
+
+或：
+
+```jinja2
+{{ memory_status["short"]["count"] }}
+```
+
+不要使用：
+
+```jinja2
+{{ memory_status.short.items }}
+```
+
+## 4. 保护记忆不被误清空
+
+继续保留空覆盖保护：
+
+* 重启不能清空 memory。
+* 切 provider 不能清空 memory。
+* fallback 不能清空 memory。
+* Web 切世界不能清空 memory。
+* Web 保存配置不能清空 memory。
+
+只有用户明确点击 reset/clear 时，才允许 force 清空，并且清空前必须备份。
+
+## 第三阶段验收
+
+完成后测试：
+
+1. 自动长期记忆不再产生 ` ```json`、`[`、`]`、` ``` `。
+2. 已有污染可以清理。
+3. 长期记忆计数只统计真实记忆。
+4. 仪表盘记忆健康状态显示真实 count、大小、mtime。
+5. 重启不丢短期记忆。
+6. 切模型不丢短期记忆。
+7. Web 切世界不清空任何记忆。
+
+---
+
+# 第四阶段：统一安全写入、错误分类和敏感信息过滤
+
+目标：让项目更稳定，不再因为写文件、错误分类、日志泄露造成隐患。
+
+## 1. 所有关键文件使用原子写入
+
+已有 safe_io 的话，请统一复用。
+
+以下文件必须原子写入：
+
+```text
+providers.yaml
+.env
+data/provider_state.json
+data/runtime_state.json
+memory/*.json
+relationship/*.json
+time/*.json
+story_state/*.json
+data/sessions/*.json
+```
+
+写入流程：
+
+1. 备份旧文件。
+2. 写 `.tmp`。
+3. flush + fsync。
+4. 校验 JSON/YAML 格式。
+5. os.replace。
+6. 记录日志。
+
+注意：备份目录必须在项目目录内，例如：
+
+```text
+backups/
+```
+
+不要跑到项目上一级目录。
+
+## 2. 修复 VSLLM / 中转错误分类
+
+错误分类顺序必须正确。
+
+优先级：
+
+1. 余额不足 / 额度耗尽
+2. no_channel
+3. rate_limited
+4. unavailable
+5. auth_error
+6. model_not_found
+7. unknown_error
+
+特别注意：
+
+```text
+model_not_found: No available channel for model xxx under group free
+```
+
+这种要归类为：
+
+```text
+no_channel
+```
+
+而不是 model_not_found。
+
+关键词：
+
+余额不足：
+
+```text
+balance is insufficient
+your account balance is insufficient
+insufficient balance
+account balance is insufficient
+insufficient_quota
+quota exceeded
+余额不足
+额度不足
+```
+
+no_channel：
+
+```text
+no available channel
+under group free
+no channel
+```
+
+限流：
+
+```text
+429
+rate limit
+too many requests
+RPM
+TPM
+```
+
+服务不可用：
+
+```text
+500
+502
+503
+504
+Service Unavailable
+Bad Gateway
+Gateway Timeout
+upstream error
+```
+
+模型不存在：
+
+```text
+model_not_found
+model does not exist
+unknown model
+```
+
+但 no_channel 必须先于 model_not_found 判断。
+
+## 3. 统一敏感信息过滤
+
+新增公共函数：
+
+```python
+filter_sensitive(text: str) -> str
+```
+
+要求：
+
+1. 自动读取 providers.yaml 中所有 `api_key_env`。
+2. 自动读取环境变量中的真实 key。
+3. 过滤：
+
+   * API Key
+   * BOT_TOKEN
+   * WEB_PASSWORD
+   * Authorization header
+   * Bearer token
+   * `sk-...`
+4. 所有地方统一调用：
+
+   * 日志展示；
+   * 仪表盘异常；
+   * Provider 测试结果；
+   * Web flash 错误；
+   * traceback 摘要。
+5. Web 页面永远不显示真实 API Key，只显示 api_key_env 名称和是否存在。
+
+## 4. Web 和 Bot 并发操作加锁
+
+Flask Web 和 Telegram Bot 在同进程运行，Web 操作可能和聊天生成并发冲突。
+
+请给关键操作加锁：
+
+* provider_state 写入；
+* providers.yaml 编辑；
+* router reload；
+* world switch；
+* memory 保存；
+* long memory 清理；
+* relationship/time/story_state 写入。
+
+不要让以下操作同时冲突：
+
+* Web 正在切世界，Telegram 正在生成回复；
+* Web 正在编辑记忆，后台任务正在抽取记忆；
+* Web 正在清除 provider 状态，LLMRouter 正在 fallback 写状态。
+
+## 第四阶段验收
+
+完成后测试：
+
+1. `.env` 保存有备份和原子写入。
+2. providers.yaml 保存有备份和原子写入。
+3. provider_state.json 损坏风险降低。
+4. VSLLM no available channel 分类正确。
+5. 余额不足分类为 exhausted。
+6. 429 分类为 rate_limited。
+7. 503 分类为 unavailable。
+8. Web 和日志不泄露 API Key。
+9. Web 操作和 Telegram 聊天并发时不损坏文件。
+
+---
+
+# 第五阶段：架构命名收敛与文档更新
+
+目标：减少旧架构名称误导，整理 README。
+
+## 1. DeepSeekClient 降级为兼容层
+
+项目已经是 Multi-provider Router，不应继续以 DeepSeekClient 作为核心概念。
+
+短期可以保留类名，但必须做到：
+
+1. 不再让 Web 页面读取 `DeepSeekClient.model_name`。
+2. 不再让新功能依赖 DeepSeek-only 逻辑。
+3. 注释中明确它只是 legacy compatibility wrapper。
+4. README 不再把 DeepSeekClient 作为主架构核心。
+
+长期建议重命名为：
+
+```text
+LLMClient
+RouterClient
+```
+
+但本阶段不强制大规模重命名，除非改动范围可控。
+
+## 2. README 更新为真实架构
+
+README 必须和代码一致。
+
+明确：
+
+```text
+当前模型：LLMRouter
+模型配置：providers.yaml
+模型状态：data/provider_state.json
+当前世界：WorldManager + data/runtime_state.json
+世界文件：data/worlds/*.yaml
+短期记忆：MemoryManager
+长期记忆：MemoryManager
+配置中心：只管理行为参数，不管理模型和世界
+```
+
+修正 runtime_state / provider_state 职责：
+
+如果当前实现是：
+
+```text
+runtime_state.json：active_world
+provider_state.json：provider_mode/manual_provider/failures/cooldown/exhausted
+```
+
+README 就按当前实现写，不要写未来规划。
+
+删除旧说明：
+
+* DeepSeek 单模型核心架构；
+* worlds/*.py；
+* 修改 ACTIVE_WORLD 后重启切换世界；
+* Telegram `/provider`；
+* MODEL_NAME 当前模型选择。
+
+## 3. 全面检查 Web 模板字段
+
+检查：
+
+```text
+dashboard.html
+base.html
+memory.html
+providers.html
+relations.html
+time.html
+worlds.html
+config.html
+```
+
+目标：
+
+1. 不显示 Python 方法对象。
+2. 不读取旧字段。
+3. 不读 MODEL_NAME 当前模型。
+4. 不读 ACTIVE_WORLD 当前世界。
+5. 不暴露 API Key。
+6. 所有 POST 都有 CSRF。
+7. 所有按钮失败有提示。
+
+## 第五阶段验收
+
+完成后测试：
+
+1. README 与当前实现一致。
+2. 页面文案不再出现旧架构误导。
+3. DeepSeek-only 只作为兼容，不作为核心。
+4. Web 模板没有明显字段错误。
+5. 用户按照 README 配置 VSLLM / MiniMax / Kimi 等 provider 可以跑通。
+
+---
+
+# 总体要求
+
+1. 不要继续新增无关功能。
+2. 每个阶段完成后先自测。
+3. 不要一次性大规模重写所有模块。
+4. 优先删除旧入口、统一状态来源。
+5. 所有关键写入必须备份。
+6. 所有错误日志必须过滤敏感信息。
+7. 不要让 provider 操作影响 memory。
+8. 不要让 world 操作影响 provider。
+9. 不要让 config center 重新接管模型或世界。
+10. 不要让旧 MODEL_NAME / ACTIVE_WORLD 继续影响当前状态。
+
+最终目标：
+
+项目边界必须清晰：
+
+```text
+LLMRouter：只管模型选择、fallback、provider 状态。
+WorldManager：只管 active_world 和世界文件热加载。
+MemoryManager：只管短期记忆、长期记忆、摘要和记忆安全。
+Web Panel：只管展示和调用管理接口。
+Telegram Bot：只管聊天入口和用户命令。
+Config Center：只管行为参数，不管当前模型和当前世界。
+providers.yaml：只保存 provider 配置。
+provider_state.json：只保存 provider 运行状态。
+runtime_state.json：只保存 active_world 等运行时选择。
+memory/session 文件：只保存聊天上下文和记忆。
+```
+
+完成后，重启、切模型、fallback、切世界、Web 保存配置，都不能导致短期记忆丢失，也不能导致 Web 显示状态和实际运行状态不一致。
