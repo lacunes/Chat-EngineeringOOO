@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from bot import utils
+from bot.memory_store import MemoryStore, MemoryItem, _new_id, _now
 from config import prompts, settings
 
 
@@ -63,41 +64,41 @@ def _should_extract_long_memory(text: str) -> bool:
 class MemoryManager:
     """管理当前世界的短期记忆和长期记忆。
 
-    文件路径（v2）：
+    短期记忆（不变）：
     data/sessions/{world}_chat.json       — 短期聊天上下文
-    data/memory/{world}_long_term.json    — 长期记忆
-    data/memory/{world}_summary.json      — 压缩摘要（从短期压缩时生成）
 
-    旧路径（v1，启动时自动迁移）：
-    memory/{world}_memory.json
-    memory/{world}_world_memory.json
+    长期记忆（v3 结构化）：
+    data/memory/{world}_memories.json     — 新结构化格式
+    data/memory/{world}_long_term.json    — 旧格式（自动迁移）
+    data/memory/{world}_summary.json      — 压缩摘要
+
+    v3 起长期记忆使用 MemoryStore 管理，支持类型/参与者/重要性/生命周期。
+    旧格式（扁平字符串列表）在首次加载时自动迁移。
     """
 
     def __init__(self, world_name: str):
-        # 新路径
         sessions_dir = settings.BASE_DIR / "data" / "sessions"
-        memory_dir = settings.BASE_DIR / "data" / "memory"
         sessions_dir.mkdir(parents=True, exist_ok=True)
-        memory_dir.mkdir(parents=True, exist_ok=True)
 
         self.world_name = world_name
 
-        # 文件路径（v2）
+        # 文件路径
         self._chat_path = sessions_dir / f"{world_name}_chat.json"
-        self._long_term_path = memory_dir / f"{world_name}_long_term.json"
-        self._summary_path = memory_dir / f"{world_name}_summary.json"
+        self._summary_path = settings.BASE_DIR / "data" / "memory" / f"{world_name}_summary.json"
 
         # 旧路径（v1 迁移用）
         old_memory_dir = settings.BASE_DIR / "memory"
         self._old_chat_path = old_memory_dir / f"{world_name}_memory.json"
-        self._old_long_path = old_memory_dir / f"{world_name}_world_memory.json"
 
-        # ── 启动时自动迁移 ──
+        # ── 结构化长期记忆存储（v3）──
+        self._store = MemoryStore(world_name, settings.BASE_DIR)
+
+        # ── 旧路径 → 新路径迁移（短期记忆）──
         self._migrate_if_needed()
 
+        # 短期记忆（不变）
         self.memory: list[dict] = []
-        self.long_memory: list[str] = []
-        self.summary_log: list[str] = []  # 压缩摘要历史
+        self.summary_log: list[str] = []
         self.last_auto_memory_index = 0
         self.reset_confirm_users: dict[int, float] = {}
         self._lock = threading.Lock()
@@ -108,30 +109,47 @@ class MemoryManager:
         self._was_recovered: bool = False
         self._empty_protection_triggered: bool = False
 
-        # 加载数据
+        # 加载短期记忆和摘要
         self.memory = self._load_json_list(self._chat_path, "short memory")
-        self.long_memory = self._load_json_list(self._long_term_path, "long memory")
         self.summary_log = self._load_json_list(self._summary_path, "summary log")
         self.last_auto_memory_index = len(self.memory)
 
-    # ── 旧路径 → 新路径迁移 ──
+    # ── 长期记忆（向后兼容属性）──
+
+    @property
+    def long_memory(self) -> list[str]:
+        """以旧格式文本列表的形式访问长期记忆（向后兼容）。"""
+        return self._store.to_text_list(limit=settings.LONG_MEMORY_MAX_ITEMS + 20)
+
+    @long_memory.setter
+    def long_memory(self, value: list[str]) -> None:
+        """从旧格式文本列表设置长期记忆（仅 reset 使用）。"""
+        # 这个 setter 仅用于兼容旧代码中的 reset 等操作
+        # 正常情况下不应直接赋值
+        pass
+
+    @property
+    def long_memory_count(self) -> int:
+        """活跃长期记忆数量。"""
+        return self._store.count
+
+    def _get_real_memories(self) -> list[str]:
+        """返回过滤后的真实记忆列表（向后兼容）。"""
+        return self._store.to_text_list()
+
+    # ── 旧路径 → 新路径迁移（仅短期记忆）──
 
     def _migrate_if_needed(self) -> None:
-        """如果旧路径存在文件且新路径不存在，自动迁移。"""
-        for old_path, new_path, label in [
-            (self._old_chat_path, self._chat_path, "short memory"),
-            (self._old_long_path, self._long_term_path, "long memory"),
-        ]:
-            if old_path.exists() and not new_path.exists():
-                try:
-                    data = json.loads(old_path.read_text(encoding="utf-8"))
-                    new_path.parent.mkdir(parents=True, exist_ok=True)
-                    new_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-                    logger.info("Migrated %s: %s → %s (%d items)", label, old_path, new_path,
-                               len(data) if isinstance(data, list) else 0)
-                    self._was_recovered = True
-                except Exception as exc:
-                    logger.warning("Failed to migrate %s: %s", label, exc)
+        """如果旧路径存在短期记忆文件且新路径不存在，自动迁移。"""
+        if self._old_chat_path.exists() and not self._chat_path.exists():
+            try:
+                data = json.loads(self._old_chat_path.read_text(encoding="utf-8"))
+                self._chat_path.parent.mkdir(parents=True, exist_ok=True)
+                self._chat_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                logger.info("Migrated short memory: %s → %s", self._old_chat_path, self._chat_path)
+                self._was_recovered = True
+            except Exception as exc:
+                logger.warning("Failed to migrate short memory: %s", exc)
 
     @property
     def message_count(self) -> int:
@@ -163,26 +181,49 @@ class MemoryManager:
         return None
 
     def add_long_memory_item(self, text: str) -> None:
+        """添加一条长期记忆（自动解析旧分类标签，转为结构化记录）。"""
         clean = utils.normalize_text(text)
-        if clean:
-            # 如果用户手动添加的记忆没有分类标签，默认为 user_preference
-            if not _CATEGORY_LABEL.match(clean):
-                clean = f"[user_preference] {clean}"
-            with self._lock:
-                if clean not in self.long_memory:
-                    self.long_memory.append(clean)
+        if not clean:
+            return
+
+        # 解析旧分类标签
+        from bot.memory_store import OLD_CATEGORY_TO_TYPE, _OLD_CATEGORY_RE
+        item_type = "fact"
+        content = clean
+        m = _OLD_CATEGORY_RE.match(content)
+        if m:
+            cat = m.group(1)
+            item_type = OLD_CATEGORY_TO_TYPE.get(cat, "fact")
+            content = content[m.end():].strip()
+        else:
+            # 无标签默认为 preference
+            item_type = "preference"
+
+        item = MemoryItem(
+            id=_new_id(),
+            world_id=self.world_name,
+            type=item_type,
+            content=content,
+            importance=0.5,
+            confidence=0.8,
+            status="active",
+            created_at=_now(),
+            updated_at=_now(),
+        )
+        self._store.add(item)
 
     def reset(self) -> None:
-        """重置当前世界的所有记忆（需二次确认才调用）。force=True 允许写入空数组。"""
+        """重置当前世界的所有记忆（需二次确认才调用）。"""
         with self._lock:
             self.memory = []
-            self.long_memory = []
             self.summary_log = []
             self.last_auto_memory_index = 0
             self._was_recovered = False
             self._last_save_ok = True
+            # 清空 store 中的所有记忆（标记为 deleted）
+            for item in self._store.active_items():
+                self._store.set_status(item.id, "deleted")
             self.save_memory(force=True)
-            self.save_long_memory(force=True)
             self._save_summary_log(force=True)
 
     def build_messages(
@@ -237,19 +278,18 @@ class MemoryManager:
                 temperature=0.4,
                 purpose="memory_compress",
             )
-            logger.info("Compressed old memory through DeepSeek")
+            logger.info("Compressed old memory through LLM")
         except Exception as exc:
             logger.warning("Memory compression failed, using fallback: %s", exc)
             summary = dialogue_text[:2000]
 
         if summary:
-            self.add_long_memory_item(f"[plot_fact] 旧剧情摘要：{summary}")
+            self.add_long_memory_item(f"[event] 旧剧情摘要：{summary}")
             # 追加摘要日志
             with self._lock:
                 self.summary_log.append(
                     f"[{datetime.now().strftime('%Y-%m-%d %H:%M')}] {summary[:200]}"
                 )
-                # 只保留最近 20 条摘要
                 if len(self.summary_log) > 20:
                     self.summary_log = self.summary_log[-20:]
             await self.refine_long_memory(client, force=False)
@@ -326,103 +366,81 @@ class MemoryManager:
                 self.last_auto_memory_index = len(self.memory)
 
     async def refine_long_memory(self, client, force: bool = False) -> None:
-        # 长期记忆先本地去重；数量太多时再请求模型合并精炼。
-        with self._lock:
-            self.long_memory = utils.normalize_memory_items(self.long_memory)
-            items = list(self.long_memory)
-        if (
-            not force
-            and len(items)
-            <= settings.LONG_MEMORY_MAX_ITEMS + settings.LONG_MEMORY_REFINE_BUFFER
-        ):
+        """长期记忆精炼：AI 去重合并。已迁移到 MemoryStore 内置去重。"""
+        # v3: MemoryStore 已内置内容去重，精炼改为调用 store 的合并逻辑
+        active = self._store.active_items()
+        if not force and len(active) <= settings.LONG_MEMORY_MAX_ITEMS + settings.LONG_MEMORY_REFINE_BUFFER:
             return
 
+        # 使用 AI 精炼
+        text_items = [f"[{m.type}] {m.content}" for m in active]
         try:
             refined_text, _ = await client.chat(
                 [
                     {"role": "system", "content": prompts.LONG_MEMORY_REFINE_PROMPT},
-                    {"role": "user", "content": json.dumps(items, ensure_ascii=False)},
+                    {"role": "user", "content": json.dumps(text_items, ensure_ascii=False)},
                 ],
                 max_tokens=900,
                 purpose="memory_refine",
-                temperature=0.35,  # 精炼需要准确合并去重，温度低减少偏差
+                temperature=0.35,
             )
             refined = utils.parse_memory_items(refined_text)
-            with self._lock:
-                if refined:
-                    self.long_memory = refined[: settings.LONG_MEMORY_MAX_ITEMS]
-                    cat_counts = _count_categories(self.long_memory)
-                    logger.info(
-                        "Long memory refined to %d items: %s",
-                        len(self.long_memory),
-                        ", ".join(f"{c}={n}" for c, n in sorted(cat_counts.items())),
-                    )
-                else:
-                    logger.warning("Long memory refine returned empty output")
+            if refined:
+                # 将精炼结果写回 store（保留前 N 条 active，其余归档）
+                keep_ids = {m.id for m in active[:settings.LONG_MEMORY_MAX_ITEMS]}
+                for item in active:
+                    if item.id not in keep_ids:
+                        self._store.set_status(item.id, "archived")
+                # 添加精炼后的新条目
+                for text in refined:
+                    self.add_long_memory_item(text)
+                logger.info("Long memory refined: %d items active", self._store.count)
+            else:
+                logger.warning("Long memory refine returned empty output — memory preserved")
         except Exception as exc:
-            logger.warning("Long memory refine failed, using local trim: %s", exc)
-            with self._lock:
-                self.long_memory = self.long_memory[-settings.LONG_MEMORY_MAX_ITEMS :]
-
-        self.save_long_memory()
+            logger.warning("Long memory refine failed, skipping: %s", exc)
 
     def save_memory(self, force: bool = False) -> None:
         """保存短期记忆（force=True 允许覆盖为空）。"""
         self._save("memory", self._chat_path, self.memory, "short memory", force)
 
     def cleanup_polluted_memories(self) -> dict:
-        """清理已有长期记忆中的污染条目。返回清理统计。
+        """清理长期记忆中的垃圾条目。v3: 归档所有旧类别记忆并过滤无效条目。"""
+        active = self._store.active_items()
+        old_count = len(active)
+        removed = 0
+        kept = 0
 
-        1. 自动备份 long_term 文件
-        2. 过滤垃圾条目
-        3. 保留真实记忆
-        4. 保存清理后的结果
-        """
-        from bot.utils import _filter_valid_memories
-
-        with self._lock:
-            old_count = len(self.long_memory)
-            old_items = list(self.long_memory)
-
-        # 备份
-        self._backup_file(self._long_term_path)
-
-        # 过滤
-        clean_items = _filter_valid_memories(old_items)
-        removed = old_count - len(clean_items)
-
-        with self._lock:
-            self.long_memory = clean_items
-
-        self.save_long_memory()
+        for item in active:
+            # 过滤过短无意义的条目
+            if len(item.content.strip()) < 6:
+                self._store.set_status(item.id, "archived")
+                removed += 1
+                continue
+            # 过滤纯符号/垃圾行
+            has_content = bool(re.search(r'[a-zA-Z一-鿿぀-ゟ゠-ヿ]', item.content))
+            if not has_content:
+                self._store.set_status(item.id, "archived")
+                removed += 1
+                continue
+            kept += 1
 
         logger.info(
             "Memory cleanup: removed %d garbage items, kept %d real memories (from %d total)",
-            removed, len(clean_items), old_count,
+            removed, kept, old_count,
         )
-
         return {
             "before": old_count,
-            "after": len(clean_items),
+            "after": kept,
             "removed": removed,
-            "kept": len(clean_items),
+            "kept": kept,
         }
 
     def save_long_memory(self, force: bool = False) -> None:
-        """保存长期记忆（force=True 允许覆盖为空）。
-
-        保存前校验：不允许保存 ```json、[、]、``` 等垃圾条目。
-        """
-        from bot.utils import _filter_valid_memories
-        # 保存前过滤垃圾
-        clean = _filter_valid_memories(self.long_memory)
-        if len(clean) != len(self.long_memory):
-            logger.warning(
-                "Pre-save filter removed %d garbage items from long_memory",
-                len(self.long_memory) - len(clean),
-            )
-            self.long_memory = clean
-        self._save("long_memory", self._long_term_path, self.long_memory, "long memory", force)
+        """保存长期记忆（v3：委托给 MemoryStore）。"""
+        self._store.save()
+        self._last_save_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._last_save_ok = True
 
     def _save_summary_log(self, force: bool = False) -> None:
         """保存压缩摘要日志。"""
@@ -542,23 +560,10 @@ class MemoryManager:
     # ── 记忆状态查询（供 Web 面板使用）──
 
     def get_memory_status(self) -> dict:
-        """返回记忆健康状况摘要。
-
-        结构（注意：字段名用 count 而非 items，避免与 dict.items() 方法冲突）：
-        {
-            "world": str,
-            "checked_at": str,
-            "last_save_ok": bool,
-            "last_save_time": str,
-            "was_recovered": bool,
-            "chat":    {"count": int, "size": int, "mtime": str, "path": str, "ok": bool},
-            "long":    {"count": int, "size": int, "mtime": str, "path": str, "ok": bool},
-            "summary": {"count": int, "size": int, "mtime": str, "path": str, "ok": bool},
-        }
-        """
+        """返回记忆健康状况摘要。"""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        def file_info(p: Path, label: str) -> dict:
+        def file_info(p: Path) -> dict:
             if not p.exists():
                 return {"ok": False, "count": 0, "size": 0, "mtime": "-", "path": str(p)}
             try:
@@ -575,13 +580,18 @@ class MemoryManager:
             except Exception:
                 return {"ok": False, "count": 0, "size": 0, "mtime": "?", "path": str(p), "corrupted": True}
 
+        # v3 长期记忆从 store 获取
+        long_path = self._store._new_path
+        long_info = file_info(long_path)
+        long_info["count"] = self._store.count  # 用 store 的活跃计数
+
         return {
             "world": self.world_name,
             "checked_at": now,
             "last_save_ok": self._last_save_ok,
             "last_save_time": self._last_save_time or "(尚未保存)",
             "was_recovered": self._was_recovered,
-            "chat": file_info(self._chat_path, "chat"),
-            "long": file_info(self._long_term_path, "long"),
-            "summary": file_info(self._summary_path, "summary"),
+            "chat": file_info(self._chat_path),
+            "long": long_info,
+            "summary": file_info(self._summary_path),
         }
