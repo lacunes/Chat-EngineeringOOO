@@ -11,6 +11,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from bot import utils
+from bot.context_selector import ContextSelector
 from bot.memory_manager import MemoryManager
 from bot.npc_manager import NPCManager
 from bot.relationship_manager import RelationshipManager
@@ -57,6 +58,8 @@ class RoleplayBot:
         self.npc_manager = NPCManager(world, self.memory)
         # 剧情状态管理器 —— 纯本地 JSON，不影响 API 调用频率
         self.story_state = StoryStateManager(world.WORLD_NAME, settings.MEMORY_DIR)
+        # 上下文选择器（v3：动态选择注入内容）
+        self.context_selector = ContextSelector()
         # 防止后台记忆维护任务堆积
         self._bg_maintenance_running = False
         self._last_maintenance_time: float = 0.0
@@ -395,20 +398,75 @@ class RoleplayBot:
         # 1. 固定层：世界设定 + 时间指令（世界不变则永远不变，100% 缓存命中）
         world_prompt = self.world.SYSTEM_PROMPT + "\n" + prompts.TIME_INJECT_INSTRUCTION
 
-        # 2. 半固定层：长期记忆（仅在精炼/新增/删除时变化，日常不变）
-        long_term_text = None
-        if self.memory.long_memory:
-            recent = self.memory.long_memory[-settings.LONG_MEMORY_CONTEXT_LIMIT:]
-            long_term_text = "[长期记忆]\n" + "\n".join(recent)
+        # 2. 半固定层：上下文选择器（动态选择长期记忆、关系、角色等）
+        #    提取活跃角色和场景
+        active_chars = self.story_state.state.get("active_characters", [])
+        current_scene = self.story_state.state.get("scene", "")
 
-        # 3. 动态层：当前状态（NPC 指令、关系、时间数据、导演指令）
+        try:
+            selection = self.context_selector.select(
+                user_text=user_text,
+                world=self.world,
+                memory_store=self.memory._store,
+                relationship_manager=self.relationship_manager,
+                time_manager=self.time_manager,
+                story_state=self.story_state,
+                active_characters=active_chars,
+                current_scene=current_scene,
+            )
+            logger.debug(
+                "Context selection: %d items, %d tokens (mem=%d, rel=%d, char=%d)",
+                len(selection.memory_context) + len(selection.relationship_context) + len(selection.character_context),
+                selection.total_tokens,
+                len(selection.memory_context),
+                len(selection.relationship_context),
+                len(selection.character_context),
+            )
+            # 存储最近一次选择结果供Web调试
+            try:
+                from web.app import AppContext
+                # 通过 flask current_app 获取 ctx（如果可用）
+                import flask
+                if flask.has_app_context():
+                    ctx = flask.current_app.config.get("ctx")
+                    if ctx:
+                        ctx.last_selection = _serialize_selection(selection)
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.warning("Context selector failed, using fallback: %s", exc)
+            selection = None
+
+        # 构建半固定层：从选择结果中提取
+        long_term_parts: list[str] = []
+        if selection:
+            # 角色设定
+            char_texts = [it.content for it in selection.character_context]
+            if char_texts:
+                long_term_parts.append("[相关角色]\n" + "\n".join(char_texts))
+            # 长期记忆
+            mem_texts = [it.content for it in selection.memory_context]
+            if mem_texts:
+                long_term_parts.append("[长期记忆]\n" + "\n".join(mem_texts))
+            # 关系
+            rel_texts = [it.content for it in selection.relationship_context]
+            if rel_texts:
+                long_term_parts.append("\n".join(rel_texts))
+        else:
+            # 安全回退：使用旧方式的纯文本列表
+            if self.memory.long_memory:
+                recent = self.memory.long_memory[-settings.LONG_MEMORY_CONTEXT_LIMIT:]
+                long_term_parts.append("[长期记忆]\n" + "\n".join(recent))
+
+        long_term_text = "\n".join(long_term_parts) if long_term_parts else None
+
+        # 3. 动态层：当前状态（NPC 指令、时间数据、导演指令）
         dynamic_parts: list[str] = []
         if stage_directions:
             dynamic_parts.append(prompts.NPC_STAGE_DIRECTION_INSTRUCTION + "\n" + stage_directions)
 
-        relation_summary = self.relationship_manager.get_summary()
-        if relation_summary:
-            dynamic_parts.append(prompts.RELATION_INJECT_INSTRUCTION + relation_summary)
+        # 关系摘要（已移到半固定层，动态层不再重复）
+        # relation_summary 已通过 context_selector 注入
 
         time_summary = self.time_manager.get_summary()
         dynamic_parts.append(time_summary)
@@ -518,3 +576,32 @@ def _build_directive_prompt(directive: dict) -> str:
 
     lines.append("注意：这是临时导演提示，不要直接对用户说出这些指令，而是在叙事中自然体现。")
     return "\n".join(lines)
+
+
+def _serialize_selection(selection) -> dict:
+    """将 SelectionResult 序列化为可 JSON 化的字典（供 Web 调试面板）。"""
+    from bot.context_selector import SelectionResult
+    if not isinstance(selection, SelectionResult):
+        return {}
+
+    def item_to_dict(it):
+        return {
+            "source": it.source,
+            "content": it.content[:200] + ("…" if len(it.content) > 200 else ""),
+            "priority": it.priority,
+            "reason": it.reason,
+            "tokens": it.token_estimate,
+            "ref_id": it.ref_id,
+        }
+
+    return {
+        "world": [item_to_dict(it) for it in selection.world_context],
+        "character": [item_to_dict(it) for it in selection.character_context],
+        "memory": [item_to_dict(it) for it in selection.memory_context],
+        "relationship": [item_to_dict(it) for it in selection.relationship_context],
+        "story": [item_to_dict(it) for it in selection.story_context],
+        "time": [item_to_dict(it) for it in selection.time_context],
+        "excluded": [item_to_dict(it) for it in selection.excluded_items],
+        "budgets": {k: {"max": v.max_tokens, "used": v.used} for k, v in selection.budgets.items()},
+        "total_tokens": selection.total_tokens,
+    }

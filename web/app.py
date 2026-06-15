@@ -75,6 +75,8 @@ class AppContext:
         self._roleplay_bot = roleplay_bot
         self.client = client
         self.start_time = start_time
+        # 存储最近一次上下文选择结果（供调试面板使用）
+        self.last_selection: dict | None = None
 
     @property
     def world(self):

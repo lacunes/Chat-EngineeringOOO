@@ -83,6 +83,18 @@ def reset_world():
     return _flash_redirect(url_for("dashboard.index"), "当前世界记忆、关系网络和时间均已重置")
 
 
+@dashboard_bp.route("/context-debug")
+@login_required
+def context_debug():
+    """上下文选择调试面板。显示最近一次上下文选择结果。"""
+    from flask import jsonify
+    ctx = _ctx()
+    sel = getattr(ctx, 'last_selection', None)
+    if not sel:
+        return jsonify({"status": "no_data", "message": "暂无上下文选择记录。发送一条聊天消息后刷新此页面。"})
+    return jsonify({"status": "ok", "selection": sel})
+
+
 # ═══════════════════════════════════════════════════════════
 # 错误日志解析
 # ═══════════════════════════════════════════════════════════
