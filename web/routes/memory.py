@@ -87,9 +87,8 @@ def add_long_memory():
 @login_required
 def delete_long_memory(index: int):
     ctx = _ctx()
-    if 0 <= index < len(ctx.memory.long_memory):
-        removed = ctx.memory.long_memory.pop(index)
-        ctx.memory.save_long_memory()
+    removed = ctx.memory.delete_long_memory_by_index(index)
+    if removed:
         audit_log("删除记忆", removed[:80])
         logger.info("Web panel: deleted long memory item: %s", removed[:50])
         return _flash_redirect(url_for("memory.short_memory"), f"已删除: {removed[:60]}…")
@@ -104,11 +103,8 @@ def edit_long_memory(index: int):
     new_text = (request.form.get("content") or "").strip()
     if not new_text:
         return _flash_redirect(url_for("memory.short_memory"), "内容不能为空", "error")
-    if 0 <= index < len(ctx.memory.long_memory):
-        old = ctx.memory.long_memory[index]
-        ctx.memory.long_memory[index] = new_text
-        ctx.memory.save_long_memory()
-        audit_log("编辑记忆", f"#{index + 1}: {old[:40]} → {new_text[:40]}")
+    if ctx.memory.edit_long_memory_by_index(index, new_text):
+        audit_log("编辑记忆", f"#{index + 1}: → {new_text[:40]}")
         logger.info("Web panel: edited long memory item #%d", index + 1)
         return _flash_redirect(url_for("memory.short_memory"), f"已更新 #{index + 1}")
     return _flash_redirect(url_for("memory.short_memory"), "无效索引", "error")

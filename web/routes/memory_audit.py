@@ -180,39 +180,27 @@ def apply_action(filename: str):
                                "此问题未关联记忆条目", "error")
 
     if action == "adopt":
-        # 采用建议：根据 suggested_action 执行
         suggested_action = issue.get("suggested_action", "keep")
         suggested_text = issue.get("suggested_text", "")
 
         if suggested_action == "merge" and suggested_text:
-            # 合并：用建议文本替换涉及的第一条，删除其余
             primary_idx = min(affected_indices)
-            if 0 <= primary_idx < len(ctx.memory.long_memory):
-                ctx.memory.long_memory[primary_idx] = suggested_text
-            # 删除其余涉及条目（从高到低删，避免索引偏移）
+            ctx.memory.edit_long_memory_by_index(primary_idx, suggested_text)
             for i in sorted(affected_indices, reverse=True):
-                if i != primary_idx and 0 <= i < len(ctx.memory.long_memory):
-                    ctx.memory.long_memory.pop(i)
-            ctx.memory.save_long_memory()
+                if i != primary_idx:
+                    ctx.memory.delete_long_memory_by_index(i)
             audit_log("采用记忆修复建议", f"{filename}#{idx}: merge -> {suggested_text[:60]}")
 
         elif suggested_action == "rewrite" and suggested_text:
-            # 改写：用建议文本替换
             for i in affected_indices:
-                if 0 <= i < len(ctx.memory.long_memory):
-                    ctx.memory.long_memory[i] = suggested_text
-            ctx.memory.save_long_memory()
+                ctx.memory.edit_long_memory_by_index(i, suggested_text)
             audit_log("采用记忆修复建议", f"{filename}#{idx}: rewrite -> {suggested_text[:60]}")
 
         elif suggested_action == "delete":
-            # 删除涉及条目
             for i in sorted(affected_indices, reverse=True):
-                if 0 <= i < len(ctx.memory.long_memory):
-                    ctx.memory.long_memory.pop(i)
-            ctx.memory.save_long_memory()
+                ctx.memory.delete_long_memory_by_index(i)
             audit_log("采用记忆修复建议", f"{filename}#{idx}: delete {affected_indices}")
 
-        # 标记问题为已处理
         issue["resolved"] = True
         issue["resolved_action"] = action
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -221,11 +209,8 @@ def apply_action(filename: str):
                                "已采用建议")
 
     elif action == "delete_item":
-        # 直接删除涉及的记忆条目
         for i in sorted(affected_indices, reverse=True):
-            if 0 <= i < len(ctx.memory.long_memory):
-                ctx.memory.long_memory.pop(i)
-        ctx.memory.save_long_memory()
+            ctx.memory.delete_long_memory_by_index(i)
         issue["resolved"] = True
         issue["resolved_action"] = "delete_item"
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -258,9 +243,7 @@ def manual_edit(filename: str):
         return _flash_redirect(url_for("memory_audit.view_report", filename=filename),
                                "无效的记忆索引", "error")
 
-    if 0 <= i < len(ctx.memory.long_memory):
-        ctx.memory.long_memory[i] = new_text
-        ctx.memory.save_long_memory()
+    if ctx.memory.edit_long_memory_by_index(i, new_text):
         audit_log("手动编辑记忆", f"#{i}: {new_text[:60]}")
         return _flash_redirect(url_for("memory_audit.view_report", filename=filename),
                                f"已编辑 #{i + 1}")

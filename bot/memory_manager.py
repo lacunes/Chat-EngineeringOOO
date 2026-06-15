@@ -137,6 +137,26 @@ class MemoryManager:
         """返回过滤后的真实记忆列表（向后兼容）。"""
         return self._store.to_text_list()
 
+    def delete_long_memory_by_index(self, index: int) -> str | None:
+        """按显示列表索引删除长期记忆。返回被删除记忆的内容，或 None。"""
+        active = self._store.active_items()
+        if 0 <= index < len(active):
+            item = active[index]
+            self._store.set_status(item.id, "deleted")
+            logger.info("Deleted memory #%d: %s", index + 1, item.content[:50])
+            return item.content
+        return None
+
+    def edit_long_memory_by_index(self, index: int, new_text: str) -> bool:
+        """按显示列表索引编辑长期记忆。返回是否成功。"""
+        active = self._store.active_items()
+        if 0 <= index < len(active):
+            item = active[index]
+            self._store.update(item.id, content=new_text, updated_at=_now())
+            logger.info("Edited memory #%d", index + 1)
+            return True
+        return False
+
     # ── 旧路径 → 新路径迁移（仅短期记忆）──
 
     def _migrate_if_needed(self) -> None:
@@ -154,16 +174,6 @@ class MemoryManager:
     @property
     def message_count(self) -> int:
         return len(self.memory)
-
-    @property
-    def long_memory_count(self) -> int:
-        """只统计真实的长期记忆条目（过滤垃圾结构符号）。"""
-        return len(self._get_real_memories())
-
-    def _get_real_memories(self) -> list[str]:
-        """返回过滤垃圾后的真实记忆列表。"""
-        from bot.utils import _filter_valid_memories
-        return _filter_valid_memories(self.long_memory)
 
     def add_user_message(self, text: str) -> None:
         with self._lock:

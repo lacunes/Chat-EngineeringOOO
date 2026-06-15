@@ -116,7 +116,8 @@ def parse_memory_items(raw: str) -> list[str]:
 
     _VALID_MEMORY_TAG = re.compile(
         r"\[(?:hard_fact|relationship|plot_fact|character_state"
-        r"|user_preference|temporary_state|world_state|legacy)\]"
+        r"|user_preference|temporary_state|world_state|legacy"
+        r"|fact|event|promise|preference|secret|goal|scene_state)\]"
     )
 
     text = raw.strip()
@@ -191,7 +192,8 @@ def _filter_valid_memories(items: list[str]) -> list[str]:
 
     _VALID_MEMORY_TAG = re.compile(
         r"\[(?:hard_fact|relationship|plot_fact|character_state"
-        r"|user_preference|temporary_state|world_state|legacy)\]"
+        r"|user_preference|temporary_state|world_state|legacy"
+        r"|fact|event|promise|preference|secret|goal|scene_state)\]"
     )
 
     result = []

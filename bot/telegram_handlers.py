@@ -453,9 +453,9 @@ class RoleplayBot:
             if rel_texts:
                 long_term_parts.append("\n".join(rel_texts))
         else:
-            # 安全回退：使用旧方式的纯文本列表
+            # 安全回退：使用旧方式的纯文本列表（取最重要的记忆）
             if self.memory.long_memory:
-                recent = self.memory.long_memory[-settings.LONG_MEMORY_CONTEXT_LIMIT:]
+                recent = self.memory.long_memory[:settings.LONG_MEMORY_CONTEXT_LIMIT]
                 long_term_parts.append("[长期记忆]\n" + "\n".join(recent))
 
         long_term_text = "\n".join(long_term_parts) if long_term_parts else None
