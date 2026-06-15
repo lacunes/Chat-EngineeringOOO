@@ -42,9 +42,10 @@ class RoleplayBot:
     支持运行时热切换世界（通过 WorldManager）。
     """
 
-    def __init__(self, world_manager, client):
+    def __init__(self, world_manager, client, event_bus=None):
         self.world_manager = world_manager
         self.client = client
+        self.event_bus = event_bus
         self._init_managers()
 
     def _init_managers(self) -> None:
@@ -63,6 +64,28 @@ class RoleplayBot:
         # 防止后台记忆维护任务堆积
         self._bg_maintenance_running = False
         self._last_maintenance_time: float = 0.0
+
+        # ── 注册 EventBus 监听器 ──
+        self._register_event_listeners()
+
+    def _register_event_listeners(self) -> None:
+        """注册 EventBus 监听器（在 _init_managers 中调用，世界切换时重新注册）。"""
+        if not self.event_bus:
+            return
+
+        # 先移除旧监听器（世界切换时重新注册）
+        for name in ("_on_memory_maintenance", "_on_time_update"):
+            self.event_bus.off("after_assistant_reply", getattr(self, name, None))
+
+        @self.event_bus.on("after_assistant_reply", priority=10)
+        def _on_memory_maintenance(**kwargs):
+            """回复后触发：记忆压缩 + 长期记忆提取 + 关系抽取。"""
+            self._schedule_background_maintenance()
+
+        @self.event_bus.on("after_assistant_reply", priority=20)
+        def _on_time_update(**kwargs):
+            """回复后触发：更新时间计数器。"""
+            self.time_manager.on_assistant_reply(self.memory.message_count)
 
     def _ensure_world_current(self) -> None:
         """检查世界是否被 Web 面板切换，是则自动重新初始化所有管理器。"""
@@ -501,12 +524,15 @@ class RoleplayBot:
 
         self.memory.add_assistant_message(reply)
         self.relationship_manager.on_assistant_reply()
-        self.time_manager.on_assistant_reply(self.memory.message_count)
         self.memory.save_memory()
 
-        # ── 后台记忆维护 + 关系抽取（不阻塞回复；/c 跳过）──
-        if not skip_background_maintenance:
-            self._schedule_background_maintenance()
+        # ── 通过 EventBus 触发后处理（记忆维护 + 时间更新）──
+        if not skip_background_maintenance and self.event_bus:
+            self.event_bus.emit(
+                "after_assistant_reply",
+                reply_text=reply,
+                memory_snapshot=list(self.memory.memory),
+            )
 
         # ── 上轮关系变化提示（加在回复开头）──
         pending = self.relationship_manager.take_pending_hints()

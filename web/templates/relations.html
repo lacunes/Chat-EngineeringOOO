@@ -14,6 +14,33 @@
 
 {% if error %}<div class="flash-msg flash-error" style="margin-bottom:var(--space-3);">{{ error }}</div>{% endif %}
 
+{% if raw_mode %}
+<!-- 高级模式：JSON 编辑 -->
+<div class="card">
+  <div class="card-header">
+    <h2>JSON 编辑</h2>
+    <a href="{{ url_for('relations.index') }}" class="btn btn-ghost btn-sm">
+      <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#arrow-left"/></svg>
+      返回表格模式
+    </a>
+  </div>
+  {% if json_text %}
+  <textarea class="form-input" rows="24" readonly
+            style="font-family:var(--font-mono);font-size:var(--text-sm);resize:vertical;">{{ json_text }}</textarea>
+  <p class="text-muted" style="font-size:var(--text-xs);margin-top:var(--space-2);">
+    只读预览。在表格模式下编辑后保存，JSON 会同步更新。
+  </p>
+  {% else %}
+  <div style="text-align:center;padding:var(--space-8);color:var(--text-muted);">
+    <svg width="32" height="32" style="opacity:.3;margin-bottom:var(--space-3);"><use href="{{ url_for('static', filename='icons/icons.svg') }}#database"/></svg>
+    <p>暂无关系数据</p>
+  </div>
+  {% endif %}
+</div>
+
+{% else %}
+<!-- 表格编辑模式 -->
+
 <div class="card">
   <form method="post" action="{{ url_for('relations.save') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -77,6 +104,8 @@
     </div>
   </form>
 </div>
+
+{% endif %}
 
 <div class="card">
   <div class="card-header"><h2>维度说明</h2></div>

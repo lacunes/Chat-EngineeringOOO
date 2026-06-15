@@ -17,6 +17,7 @@ from telegram.ext import (
 )
 
 from bot.deepseek_client import DeepSeekClient
+from bot.event_bus import EventBus
 from bot.llm_router import LLMRouter
 from bot.memory_manager import MemoryManager
 from bot.relationship_manager import RelationshipManager
@@ -290,7 +291,10 @@ def main() -> None:
     llm_router = LLMRouter(notify_callback=None)
     client.set_router(llm_router)
 
-    roleplay_bot = RoleplayBot(world_manager, client)
+    # ── 事件总线（模块解耦）──
+    event_bus = EventBus()
+
+    roleplay_bot = RoleplayBot(world_manager, client, event_bus)
 
     set_bot_commands()
 

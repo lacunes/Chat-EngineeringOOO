@@ -16,6 +16,7 @@ event_bus — 轻量同步事件总线。
 """
 
 import logging
+import uuid
 from collections import defaultdict
 from typing import Any, Callable
 
@@ -41,6 +42,7 @@ class EventBus:
 
     def __init__(self):
         self._listeners: dict[str, list[tuple[int, Listener]]] = defaultdict(list)
+        self._emitting_stack: set[str] = set()  # 递归触发检测
 
     def on(self, event: str, priority: int = 50):
         """装饰器：注册事件监听器。priority 越低越先执行。"""
@@ -62,27 +64,45 @@ class EventBus:
         """触发事件，同步调用所有监听器。返回每个监听器的结果字典。
 
         单个监听器报错不会中断其他监听器。
-        禁止循环触发（通过简单的事件栈检测）。
+        递归触发同一事件时抛出 RuntimeError（事件栈检测）。
         """
+        # ── 递归检测 ──
+        if event in self._emitting_stack:
+            raise RuntimeError(
+                f"Recursive emit detected: event '{event}' is already being emitted. "
+                f"Current stack: {self._emitting_stack}"
+            )
+
         results: dict[str, Any] = {}
         listeners = self._listeners.get(event, [])
 
         if not listeners:
             return results
 
-        logger.debug("Event '%s' → %d listener(s)", event, len(listeners))
+        # 生成请求 ID（如果调用方未提供）
+        request_id = kwargs.get("request_id", "") or uuid.uuid4().hex[:8]
+        kwargs["request_id"] = request_id
 
-        for priority, func in listeners:
-            name = getattr(func, "__name__", str(func))
-            try:
-                result = func(**kwargs)
-                results[name] = result
-            except Exception as exc:
-                logger.error(
-                    "Event '%s' listener '%s' (priority=%d) failed: %s",
-                    event, name, priority, exc,
-                )
-                results[name] = None
+        self._emitting_stack.add(event)
+        try:
+            logger.debug("[req=%s] Event '%s' → %d listener(s)", request_id, event, len(listeners))
+
+            for priority, func in listeners:
+                name = getattr(func, "__name__", str(func))
+                try:
+                    result = func(**kwargs)
+                    results[name] = result
+                except Exception as exc:
+                    # 递归触发的 RuntimeError 必须向上传播，不能被吞掉
+                    if isinstance(exc, RuntimeError) and "Recursive emit detected" in str(exc):
+                        raise
+                    logger.error(
+                        "[req=%s] Event '%s' listener '%s' (priority=%d) failed: %s",
+                        request_id, event, name, priority, exc,
+                    )
+                    results[name] = None
+        finally:
+            self._emitting_stack.discard(event)
 
         return results
 
