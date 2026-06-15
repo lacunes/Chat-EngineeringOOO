@@ -2,31 +2,27 @@
 {% block title %}模型管理{% endblock %}
 {% block content %}
 
-<h1>🔌 模型供应商管理</h1>
+<h1 class="page-title">模型供应商管理</h1>
 
-<!-- 模式切换 -->
+<!-- 运行模式 -->
 <div class="card">
-  <div class="card-title">📡 运行模式</div>
-  <div class="card-body" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+  <div class="card-header"><h2>运行模式</h2></div>
+  <div style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;">
     <form method="post" action="{{ url_for('providers.set_mode') }}" style="display:inline;">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="mode" value="auto">
-      <button type="submit" class="btn {% if mode == 'auto' %}btn-primary{% else %}btn-secondary{% endif %}">
-        🔄 自动模式
-      </button>
+      <button type="submit" class="btn {% if mode == 'auto' %}btn-primary{% else %}btn-secondary{% endif %}">自动模式</button>
     </form>
     <form method="post" action="{{ url_for('providers.set_mode') }}" style="display:inline;">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="mode" value="manual">
-      <button type="submit" class="btn {% if mode == 'manual' %}btn-primary{% else %}btn-secondary{% endif %}">
-        🔧 手动模式
-      </button>
+      <button type="submit" class="btn {% if mode == 'manual' %}btn-primary{% else %}btn-secondary{% endif %}">手动模式</button>
     </form>
 
     {% if mode == 'manual' %}
-    <form method="post" action="{{ url_for('providers.set_manual_provider') }}" style="display:flex;gap:6px;align-items:center;">
+    <form method="post" action="{{ url_for('providers.set_manual_provider') }}" style="display:flex;gap:var(--space-2);align-items:center;">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <select name="provider" class="form-input" style="width:auto;">
+      <select name="provider" class="form-select" style="width:auto;">
         {% for p in providers %}
         <option value="{{ p.name }}" {% if p.name == manual_provider %}selected{% endif %}>
           {{ p.name }} ({{ p.model }})
@@ -35,263 +31,263 @@
       </select>
       <button type="submit" class="btn btn-primary">应用</button>
     </form>
-    <span style="color:#9ca3af;font-size:0.85rem;">当前优先: <strong>{{ manual_provider }}</strong></span>
+    <span class="text-muted" style="font-size:var(--text-sm);">当前优先: <strong>{{ manual_provider }}</strong></span>
     {% endif %}
 
-    <button class="btn btn-success" id="btn-add-provider" style="margin-left:auto;">➕ 添加 Provider</button>
+    <button class="btn btn-primary" id="btn-add-provider" style="margin-left:auto;">
+      <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#plus"/></svg>
+      添加 Provider
+    </button>
   </div>
 </div>
 
 <!-- Provider 编辑/添加表单（隐藏） -->
 <div id="provider-editor" style="display:none;">
   <div class="card">
-    <div class="card-title" id="editor-title">✏️ 编辑 Provider</div>
-    <div class="card-body">
-      <form id="editor-form" method="post" action="">
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" id="editor-is-add" value="0">
+    <div class="card-header"><h2 id="editor-title">编辑 Provider</h2></div>
+    <form id="editor-form" method="post" action="">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" id="editor-is-add" value="0">
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">名称 (name) <span style="color:#ef4444;">*</span></label>
-            <input type="text" name="name" id="editor-name" class="form-input" placeholder="如: my_provider" required>
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">模型 (model)</label>
-            <div style="display:flex;gap:6px;">
-              <input type="text" name="model" id="editor-model" class="form-input" placeholder="如: DeepSeek-V3[Free]">
-              <button type="button" class="btn btn-sm btn-secondary" id="btn-fetch-models" title="从 /v1/models 获取模型列表">📋</button>
-            </div>
-            <select id="editor-model-select" class="form-input" style="display:none;margin-top:4px;" onchange="document.getElementById('editor-model').value=this.value;">
-              <option value="">— 选择模型 —</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">API 地址 (base_url)</label>
-            <input type="text" name="base_url" id="editor-base-url" class="form-input" placeholder="https://api.example.com/v1/chat/completions">
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">环境变量名 (api_key_env)</label>
-            <input type="text" name="api_key_env" id="editor-api-key-env" class="form-input" placeholder="如: MY_API_KEY">
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">优先级 (priority)</label>
-            <input type="number" name="priority" id="editor-priority" class="form-input" value="99" min="1" max="999">
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">超时-聊天 (s)</label>
-            <input type="number" name="timeout_chat_seconds" id="editor-timeout-chat" class="form-input" value="60" min="5" max="300">
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">超时-后台 (s)</label>
-            <input type="number" name="timeout_background_seconds" id="editor-timeout-bg" class="form-input" value="30" min="5" max="300">
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">最大重试次数</label>
-            <input type="number" name="max_retries" id="editor-max-retries" class="form-input" value="1" min="0" max="5">
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">冷却秒数</label>
-            <input type="number" name="cooldown_seconds" id="editor-cooldown" class="form-input" value="300" min="0" max="3600">
-          </div>
-          <div>
-            <label style="font-size:0.85rem;color:#9ca3af;">连续失败阈值</label>
-            <input type="number" name="max_consecutive_failures" id="editor-max-fail" class="form-input" value="3" min="1" max="20">
-          </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+        <div class="form-group">
+          <label class="form-label">名称 (name) <span style="color:var(--error);">*</span></label>
+          <input type="text" name="name" id="editor-name" class="form-input" placeholder="如: my_provider" required>
         </div>
+        <div class="form-group">
+          <label class="form-label">模型 (model)</label>
+          <div style="display:flex;gap:var(--space-2);">
+            <input type="text" name="model" id="editor-model" class="form-input" placeholder="如: DeepSeek-V3[Free]">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-fetch-models" title="从 API 获取模型列表">获取</button>
+          </div>
+          <select id="editor-model-select" class="form-select" style="display:none;margin-top:var(--space-1);" onchange="document.getElementById('editor-model').value=this.value;">
+            <option value="">— 选择模型 —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">API 地址 (base_url)</label>
+          <input type="text" name="base_url" id="editor-base-url" class="form-input" placeholder="https://api.example.com/v1/chat/completions">
+        </div>
+        <div class="form-group">
+          <label class="form-label">环境变量名 (api_key_env)</label>
+          <input type="text" name="api_key_env" id="editor-api-key-env" class="form-input" placeholder="如: MY_API_KEY">
+        </div>
+        <div class="form-group">
+          <label class="form-label">优先级 (priority)</label>
+          <input type="number" name="priority" id="editor-priority" class="form-input" value="99" min="1" max="999">
+        </div>
+        <div class="form-group">
+          <label class="form-label">超时-聊天 (s)</label>
+          <input type="number" name="timeout_chat_seconds" id="editor-timeout-chat" class="form-input" value="60" min="5" max="300">
+        </div>
+        <div class="form-group">
+          <label class="form-label">超时-后台 (s)</label>
+          <input type="number" name="timeout_background_seconds" id="editor-timeout-bg" class="form-input" value="30" min="5" max="300">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最大重试次数</label>
+          <input type="number" name="max_retries" id="editor-max-retries" class="form-input" value="1" min="0" max="5">
+        </div>
+        <div class="form-group">
+          <label class="form-label">冷却秒数</label>
+          <input type="number" name="cooldown_seconds" id="editor-cooldown" class="form-input" value="300" min="0" max="3600">
+        </div>
+        <div class="form-group">
+          <label class="form-label">连续失败阈值</label>
+          <input type="number" name="max_consecutive_failures" id="editor-max-fail" class="form-input" value="3" min="1" max="20">
+        </div>
+      </div>
 
-        <div style="margin-top:10px;">
-          <label style="font-size:0.85rem;color:#9ca3af;">任务类型 (task_types)</label>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
-            <label><input type="checkbox" name="task_types" value="chat" checked> 聊天</label>
-            <label><input type="checkbox" name="task_types" value="memory"> 记忆</label>
-            <label><input type="checkbox" name="task_types" value="summary"> 摘要</label>
-            <label><input type="checkbox" name="task_types" value="relation"> 关系</label>
-            <label><input type="checkbox" name="task_types" value="background"> 后台</label>
-          </div>
+      <div style="margin-top:var(--space-3);">
+        <label class="form-label">任务类型 (task_types)</label>
+        <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;">
+          <label><input type="checkbox" name="task_types" value="chat" checked> 聊天</label>
+          <label><input type="checkbox" name="task_types" value="memory"> 记忆</label>
+          <label><input type="checkbox" name="task_types" value="summary"> 摘要</label>
+          <label><input type="checkbox" name="task_types" value="relation"> 关系</label>
+          <label><input type="checkbox" name="task_types" value="background"> 后台</label>
         </div>
+      </div>
 
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;">
-          <label><input type="checkbox" name="enabled" value="true" checked> 启用</label>
-          <label><input type="checkbox" name="disable_on_quota_exhausted" value="true" checked> 额度耗尽时自动禁用</label>
-          <label><input type="checkbox" name="thinking_enabled" value="true"> 启用思考模式</label>
-        </div>
+      <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-top:var(--space-3);">
+        <label><input type="checkbox" name="enabled" value="true" checked> 启用</label>
+        <label><input type="checkbox" name="disable_on_quota_exhausted" value="true" checked> 额度耗尽时自动禁用</label>
+        <label><input type="checkbox" name="thinking_enabled" value="true"> 启用思考模式</label>
+      </div>
 
-        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-          <button type="submit" class="btn btn-primary">💾 保存</button>
-          <button type="button" class="btn btn-secondary" id="btn-cancel-edit">取消</button>
-          <span id="editor-fetch-status" style="font-size:0.85rem;color:#9ca3af;margin-left:auto;"></span>
-        </div>
-      </form>
-    </div>
+      <div style="display:flex;gap:var(--space-2);align-items:center;margin-top:var(--space-4);">
+        <button type="submit" class="btn btn-primary">
+          <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+          保存
+        </button>
+        <button type="button" class="btn btn-secondary" id="btn-cancel-edit">取消</button>
+        <span id="editor-fetch-status" style="font-size:var(--text-sm);color:var(--text-muted);margin-left:auto;"></span>
+      </div>
+    </form>
   </div>
 </div>
 
 <!-- Fallback 信息 -->
 {% if last_fallback_time %}
-<div class="card" style="border-left:3px solid #f59e0b;">
-  <div class="card-title">📋 最近 Fallback</div>
-  <div class="card-body">
-    <span style="color:#9ca3af;">{{ last_fallback_time }}</span><br>
-    {{ last_fallback_reason }}
-  </div>
+<div class="card" style="border-left:3px solid var(--warning);">
+  <div class="card-header"><h2>最近 Fallback</h2></div>
+  <p class="text-muted" style="font-size:var(--text-sm);">{{ last_fallback_time }}</p>
+  <p>{{ last_fallback_reason }}</p>
 </div>
 {% endif %}
 
 <!-- Provider 列表 -->
-<h2 style="margin-top:24px;">📋 Provider 状态</h2>
+<h2 style="margin-top:var(--space-6);font-size:var(--text-xl);font-weight:600;">Provider 状态</h2>
 
 {% for p in providers %}
-<div class="card" style="{% if p.exhausted %}border-left:3px solid #ef4444;{% elif p.cooldown_remaining > 0 %}border-left:3px solid #f59e0b;{% elif p.enabled %}border-left:3px solid #10b981;{% else %}border-left:3px solid #6b7280;{% endif %}">
-  <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+<div class="card" style="border-left:3px solid {% if p.exhausted %}var(--error){% elif p.cooldown_remaining > 0 %}var(--warning){% elif p.enabled %}var(--success){% else %}var(--text-muted){% endif %};">
+  <div class="card-header">
     <span>
-      {% if p.enabled %}✅{% else %}❌{% endif %}
+      {% if p.enabled %}
+      <span class="badge badge-success" style="margin-right:var(--space-2);">启用</span>
+      {% else %}
+      <span class="badge badge-default" style="margin-right:var(--space-2);">禁用</span>
+      {% endif %}
       <strong>{{ p.name }}</strong>
-      <span style="color:#9ca3af;font-size:0.85rem;">P{{ p.priority }}</span>
-      {% if p.has_api_key %}🔑{% else %}❌缺Key{% endif %}
+      <span class="text-muted" style="margin-left:var(--space-2);font-size:var(--text-sm);">P{{ p.priority }}</span>
+      {% if p.has_api_key %}
+      <span class="badge badge-success" style="margin-left:var(--space-2);">已配置Key</span>
+      {% else %}
+      <span class="badge badge-error" style="margin-left:var(--space-2);">缺少Key</span>
+      {% endif %}
     </span>
 
-    <span style="display:flex;gap:6px;flex-wrap:wrap;">
-      <!-- 启用/禁用 -->
+    <div style="display:flex;gap:var(--space-1);flex-wrap:wrap;">
       <form method="post" action="{{ url_for('providers.toggle_provider') }}" style="display:inline;">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="name" value="{{ p.name }}">
-        <button type="submit" class="btn btn-sm {% if p.enabled %}btn-danger{% else %}btn-success{% endif %}">
+        <button type="submit" class="btn btn-sm {% if p.enabled %}btn-danger{% else %}btn-primary{% endif %}">
           {{ '禁用' if p.enabled else '启用' }}
         </button>
       </form>
 
-      <!-- 清除状态 -->
       <form method="post" action="{{ url_for('providers.clear_provider') }}" style="display:inline;" data-confirm="确认清除 {{ p.name }} 的失败/冷却/耗尽状态？">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="name" value="{{ p.name }}">
-        <button type="submit" class="btn btn-sm btn-secondary">🧹 清除</button>
+        <button type="submit" class="btn btn-sm btn-secondary">清除状态</button>
       </form>
 
-      <!-- 测试连接 -->
-      <button class="btn btn-sm btn-secondary test-btn" data-provider="{{ p.name }}">🔬 测试</button>
+      <button class="btn btn-sm btn-secondary test-btn" data-provider="{{ p.name }}">测试连接</button>
+      <button class="btn btn-sm btn-secondary edit-btn" data-provider="{{ p.name }}">编辑</button>
 
-      <!-- 编辑 -->
-      <button class="btn btn-sm btn-secondary edit-btn" data-provider="{{ p.name }}">✏️ 编辑</button>
-
-      <!-- 删除 -->
-      <form method="post" action="{{ url_for('providers.delete_provider') }}" style="display:inline;" data-confirm="⚠️ 确认删除 {{ p.name }}？此操作不可恢复！">
+      <form method="post" action="{{ url_for('providers.delete_provider') }}" style="display:inline;" data-confirm="确认删除 {{ p.name }}？此操作不可恢复！">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="name" value="{{ p.name }}">
-        <button type="submit" class="btn btn-sm btn-danger">🗑️ 删除</button>
+        <button type="submit" class="btn btn-sm btn-danger">删除</button>
       </form>
-    </span>
+    </div>
   </div>
 
-  <div class="card-body" style="font-size:0.9rem;">
-    <table style="width:100%;border-collapse:collapse;">
+  <div class="table-wrap">
+    <table>
       <tr>
-        <td style="color:#9ca3af;width:80px;">模型</td>
+        <td style="color:var(--text-muted);width:60px;">模型</td>
         <td><code>{{ p.model }}</code></td>
-        <td style="color:#9ca3af;width:80px;">API</td>
-        <td style="font-size:0.8rem;">{{ p.base_url[:60] }}{% if p.base_url|length > 60 %}…{% endif %}</td>
+        <td style="color:var(--text-muted);width:60px;">API</td>
+        <td style="font-size:var(--text-sm);">{{ p.base_url[:60] }}{% if p.base_url|length > 60 %}…{% endif %}</td>
       </tr>
       <tr>
-        <td style="color:#9ca3af;">超时</td>
+        <td style="color:var(--text-muted);">超时</td>
         <td>聊天: {{ p.timeout_chat_seconds }}s / 后台: {{ p.timeout_background_seconds }}s</td>
-        <td style="color:#9ca3af;">冷却</td>
+        <td style="color:var(--text-muted);">冷却</td>
         <td>{{ p.cooldown_seconds }}s / 连续 {{ p.max_consecutive_failures }} 次失败触发</td>
       </tr>
       <tr>
-        <td style="color:#9ca3af;">任务</td>
+        <td style="color:var(--text-muted);">任务</td>
         <td colspan="3">
           {% for t in p.task_types %}
-          <span class="badge">{{ t }}</span>
+          <span class="badge badge-default" style="margin-right:var(--space-1);">{{ t }}</span>
           {% endfor %}
         </td>
       </tr>
     </table>
-
-    <!-- 状态信息 -->
-    <div style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;">
-      {% if p.exhausted %}
-      <span style="color:#ef4444;">🚫 额度耗尽（已永久跳过）</span>
-      {% elif p.cooldown_remaining > 0 %}
-      <span style="color:#f59e0b;">⏳ 冷却中 (剩余 {{ p.cooldown_remaining }}s)</span>
-      {% elif p.enabled and p.has_api_key %}
-      <span style="color:#10b981;">✅ 可用</span>
-      {% else %}
-      <span style="color:#6b7280;">⚫ 不可用</span>
-      {% endif %}
-
-      {% if p.consecutive_failures > 0 %}
-      <span style="color:#f59e0b;">连续失败: {{ p.consecutive_failures }} 次</span>
-      {% endif %}
-
-      {% if p.last_failure_reason %}
-      <span style="color:#ef4444;font-size:0.85rem;" title="{{ p.last_failure_time }}">
-        最近错误: {{ p.last_failure_reason[:80] }}{% if p.last_failure_reason|length > 80 %}…{% endif %}
-      </span>
-      {% endif %}
-    </div>
-
-    <!-- 测试结果 -->
-    <div class="test-result" id="test-{{ p.name }}" style="display:none;margin-top:8px;padding:8px;background:var(--bg-card);border-radius:6px;"></div>
   </div>
+
+  <!-- 状态信息 -->
+  <div style="margin-top:var(--space-2);display:flex;gap:var(--space-4);flex-wrap:wrap;">
+    {% if p.exhausted %}
+    <span class="badge badge-error">额度耗尽（已永久跳过）</span>
+    {% elif p.cooldown_remaining > 0 %}
+    <span class="badge badge-warning">冷却中 (剩余 {{ p.cooldown_remaining }}s)</span>
+    {% elif p.enabled and p.has_api_key %}
+    <span class="badge badge-success">可用</span>
+    {% else %}
+    <span class="badge badge-default">不可用</span>
+    {% endif %}
+
+    {% if p.consecutive_failures > 0 %}
+    <span class="badge badge-warning">连续失败: {{ p.consecutive_failures }} 次</span>
+    {% endif %}
+
+    {% if p.last_failure_reason %}
+    <span style="color:var(--error);font-size:var(--text-sm);" title="{{ p.last_failure_time }}">
+      最近错误: {{ p.last_failure_reason[:80] }}{% if p.last_failure_reason|length > 80 %}…{% endif %}
+    </span>
+    {% endif %}
+  </div>
+
+  <!-- 测试结果 -->
+  <div class="test-result" id="test-{{ p.name }}" style="display:none;margin-top:var(--space-2);padding:var(--space-2);background:var(--surface-secondary);border-radius:var(--radius-sm);"></div>
 </div>
 {% endfor %}
 
 <!-- 回复长度参数 -->
-<h2 style="margin-top:24px;">📏 回复长度参数</h2>
+<h2 style="margin-top:var(--space-6);font-size:var(--text-xl);font-weight:600;">回复长度参数</h2>
 <div class="card">
-  <div class="card-body">
-    <table style="width:100%;border-collapse:collapse;">
+  <div class="table-wrap">
+    <table>
       <tr>
-        <td style="color:#9ca3af;">MIN_REPLY_TOKENS</td>
+        <td style="color:var(--text-muted);">MIN_REPLY_TOKENS</td>
         <td><strong>{{ reply_params.MIN_REPLY_TOKENS }}</strong></td>
-        <td style="color:#9ca3af;font-size:0.8rem;">最短回复 token 数</td>
+        <td class="text-muted" style="font-size:var(--text-sm);">最短回复 token 数</td>
       </tr>
       <tr>
-        <td style="color:#9ca3af;">MID_REPLY_TOKENS</td>
+        <td style="color:var(--text-muted);">MID_REPLY_TOKENS</td>
         <td><strong>{{ reply_params.MID_REPLY_TOKENS }}</strong></td>
-        <td style="color:#9ca3af;font-size:0.8rem;">中等回复上限（85% 概率在此范围内）</td>
+        <td class="text-muted" style="font-size:var(--text-sm);">中等回复上限（85% 概率）</td>
       </tr>
       <tr>
-        <td style="color:#9ca3af;">MAX_REPLY_TOKENS</td>
+        <td style="color:var(--text-muted);">MAX_REPLY_TOKENS</td>
         <td><strong>{{ reply_params.MAX_REPLY_TOKENS }}</strong></td>
-        <td style="color:#9ca3af;font-size:0.8rem;">最长回复 token 数</td>
+        <td class="text-muted" style="font-size:var(--text-sm);">最长回复 token 数</td>
       </tr>
       <tr>
-        <td style="color:#9ca3af;">SPLIT_THRESHOLD</td>
+        <td style="color:var(--text-muted);">SPLIT_THRESHOLD</td>
         <td><strong>{{ reply_params.SPLIT_THRESHOLD }}</strong></td>
-        <td style="color:#9ca3af;font-size:0.8rem;">分段阈值（字符数）</td>
+        <td class="text-muted" style="font-size:var(--text-sm);">分段阈值（字符数）</td>
       </tr>
     </table>
-    <p style="color:#9ca3af;font-size:0.8rem;margin-top:8px;">可在 .env 中修改以上参数，重启 Bot 生效。</p>
   </div>
+  <p class="text-muted" style="font-size:var(--text-xs);margin-top:var(--space-2);">可在 .env 中修改以上参数，重启 Bot 生效。</p>
 </div>
 
 <!-- Prompt 预览 -->
-<div style="margin-top:16px;">
-  <a href="{{ url_for('providers.prompt_preview') }}" class="btn btn-secondary">📝 当前实际 Prompt 预览</a>
+<div style="margin-top:var(--space-4);">
+  <a href="{{ url_for('providers.prompt_preview') }}" class="btn btn-secondary">
+    <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#eye"/></svg>
+    当前 Prompt 预览
+  </a>
 </div>
 
 <!-- 最近 LLM 调用记录 -->
-<h2 style="margin-top:24px;">📊 最近 LLM 调用记录（最近 20 次）</h2>
+<h2 style="margin-top:var(--space-6);font-size:var(--text-xl);font-weight:600;">最近 LLM 调用记录（最近 20 次）</h2>
 {% if call_history %}
-<div style="overflow-x:auto;">
-<table class="table" style="width:100%;font-size:0.85rem;">
+<div class="table-wrap">
+<table style="font-size:var(--text-sm);">
   <thead>
     <tr>
-      <th>时间</th>
-      <th>Provider</th>
-      <th>Model</th>
-      <th>Purpose</th>
-      <th>Tokens</th>
-      <th>Finish</th>
-      <th>耗时</th>
-      <th>Fallback</th>
-      <th>状态</th>
+      <th>时间</th><th>Provider</th><th>Model</th><th>Purpose</th>
+      <th>Tokens</th><th>Finish</th><th>耗时</th><th>Fallback</th><th>状态</th>
     </tr>
   </thead>
   <tbody>
     {% for call in call_history %}
-    <tr style="{% if not call.success %}background:rgba(239,68,68,0.1);{% endif %}">
+    <tr style="{% if not call.success %}background:var(--error-light);{% endif %}">
       <td style="white-space:nowrap;">{{ call.timestamp[11:19] if call.timestamp else '-' }}</td>
       <td>{{ call.provider }}</td>
       <td>{{ call.model }}</td>
@@ -302,9 +298,9 @@
       <td>{% if call.fallback_from %}{{ call.fallback_from }}→{{ call.fallback_to }}{% else %}-{% endif %}</td>
       <td>
         {% if call.success %}
-        ✅
+        <span class="badge badge-success">成功</span>
         {% else %}
-        ❌ <span title="{{ call.error_message }}">{{ call.error_type }}</span>
+        <span class="badge badge-error" title="{{ call.error_message }}">{{ call.error_type }}</span>
         {% endif %}
       </td>
     </tr>
@@ -313,7 +309,7 @@
 </table>
 </div>
 {% else %}
-<p style="color:#9ca3af;">暂无调用记录。</p>
+<p class="text-muted">暂无调用记录。</p>
 {% endif %}
 
 {% endblock %}
@@ -326,7 +322,7 @@ document.querySelectorAll('.test-btn').forEach(function(btn) {
     var name = btn.getAttribute('data-provider');
     var resultDiv = document.getElementById('test-' + name);
     resultDiv.style.display = 'block';
-    resultDiv.innerHTML = '<span style="color:#f59e0b;">⏳ 测试中…</span>';
+    resultDiv.innerHTML = '<span style="color:var(--warning);">测试中…</span>';
     btn.disabled = true;
 
     fetch('{{ url_for("providers.test_provider") }}', {
@@ -340,13 +336,13 @@ document.querySelectorAll('.test-btn').forEach(function(btn) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.ok) {
-        resultDiv.innerHTML = '<span style="color:#10b981;">✅ 成功！回复: "' + escapeHtml(data.reply) + '" | 延迟: ' + data.latency_ms + 'ms | 模型: ' + escapeHtml(data.model) + '</span>';
+        resultDiv.innerHTML = '<span style="color:var(--success);">成功！回复: "' + escapeHtml(data.reply) + '" | 延迟: ' + data.latency_ms + 'ms | 模型: ' + escapeHtml(data.model) + '</span>';
       } else {
-        resultDiv.innerHTML = '<span style="color:#ef4444;">❌ 失败: ' + escapeHtml(data.error) + ' (延迟: ' + data.latency_ms + 'ms)</span>';
+        resultDiv.innerHTML = '<span style="color:var(--error);">失败: ' + escapeHtml(data.error) + ' (延迟: ' + data.latency_ms + 'ms)</span>';
       }
     })
     .catch(function(err) {
-      resultDiv.innerHTML = '<span style="color:#ef4444;">❌ 请求失败: ' + escapeHtml(String(err)) + '</span>';
+      resultDiv.innerHTML = '<span style="color:var(--error);">请求失败: ' + escapeHtml(String(err)) + '</span>';
     })
     .finally(function() {
       btn.disabled = false;
@@ -354,7 +350,7 @@ document.querySelectorAll('.test-btn').forEach(function(btn) {
   });
 });
 
-// ── 编辑 / 添加 Provider 表单 ──
+// ── 编辑/添加 Provider 表单 ──
 var editorDiv = document.getElementById('provider-editor');
 var editorForm = document.getElementById('editor-form');
 var editorTitle = document.getElementById('editor-title');
@@ -366,7 +362,6 @@ var fetchStatus = document.getElementById('editor-fetch-status');
 var modelSelect = document.getElementById('editor-model-select');
 var csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
-// Provider 数据（从 Jinja2 注入，供编辑时填充）
 var providerData = {};
 {% for p in providers %}
 providerData['{{ p.name }}'] = {
@@ -386,7 +381,6 @@ providerData['{{ p.name }}'] = {
 };
 {% endfor %}
 
-// 填充表单
 function fillForm(data) {
   document.getElementById('editor-model').value = data.model || '';
   document.getElementById('editor-base-url').value = data.base_url || '';
@@ -397,25 +391,18 @@ function fillForm(data) {
   document.getElementById('editor-max-retries').value = data.max_retries || 1;
   document.getElementById('editor-cooldown').value = data.cooldown_seconds || 300;
   document.getElementById('editor-max-fail').value = data.max_consecutive_failures || 3;
-
-  // Checkboxes: enabled
   var enabledCb = editorForm.querySelector('input[name="enabled"]');
   if (enabledCb) enabledCb.checked = data.enabled !== false;
-
-  // Checkboxes: disable_on_quota_exhausted / thinking_enabled
   var quotaCb = editorForm.querySelector('input[name="disable_on_quota_exhausted"]');
   if (quotaCb) quotaCb.checked = data.disable_on_quota_exhausted !== false;
   var thinkCb = editorForm.querySelector('input[name="thinking_enabled"]');
   if (thinkCb) thinkCb.checked = data.thinking_enabled === true;
-
-  // Checkboxes: task_types
   var types = data.task_types || ['chat'];
   editorForm.querySelectorAll('input[name="task_types"]').forEach(function(cb) {
     cb.checked = types.indexOf(cb.value) >= 0;
   });
 }
 
-// 清空表单（添加模式）
 function clearForm() {
   document.getElementById('editor-name').value = '';
   document.getElementById('editor-name').readOnly = false;
@@ -439,7 +426,6 @@ function clearForm() {
   fetchStatus.textContent = '';
 }
 
-// 显示编辑器
 function showEditor(title, actionUrl, isAdd) {
   editorTitle.textContent = title;
   editorForm.action = actionUrl;
@@ -448,21 +434,17 @@ function showEditor(title, actionUrl, isAdd) {
   editorDiv.scrollIntoView({behavior:'smooth'});
 }
 
-// 隐藏编辑器
 function hideEditor() {
   editorDiv.style.display = 'none';
 }
 
-// 添加按钮
 btnAdd.addEventListener('click', function() {
   clearForm();
-  showEditor('➕ 添加 Provider', '{{ url_for("providers.add_provider") }}', true);
+  showEditor('添加 Provider', '{{ url_for("providers.add_provider") }}', true);
 });
 
-// 取消按钮
 btnCancel.addEventListener('click', hideEditor);
 
-// 编辑按钮
 document.querySelectorAll('.edit-btn').forEach(function(btn) {
   btn.addEventListener('click', function() {
     var name = btn.getAttribute('data-provider');
@@ -471,31 +453,22 @@ document.querySelectorAll('.edit-btn').forEach(function(btn) {
     document.getElementById('editor-name').value = name;
     document.getElementById('editor-name').readOnly = true;
     fillForm(data);
-    showEditor('✏️ 编辑 Provider: ' + name,
-      '{{ url_for("providers.edit_provider") }}',
-      false);
+    showEditor('编辑 Provider: ' + name, '{{ url_for("providers.edit_provider") }}', false);
   });
 });
 
-// ── 获取模型列表 ──
 btnFetch.addEventListener('click', function() {
   var baseUrl = document.getElementById('editor-base-url').value.trim();
   if (!baseUrl) {
     alert('请先填写 API 地址 (base_url)');
     return;
   }
-  // 尝试从输入框中获取 api_key_env 对应值；如果没有则提示用户手动输入
   var apiKeyEnv = document.getElementById('editor-api-key-env').value.trim();
-  // 用户可能需要手动输入 API Key（从 .env 中复制）
-  var apiKey = prompt(
-    '请输入 API Key（从 .env 中对应 ' + (apiKeyEnv || 'API_KEY') + ' 的值）：\n\n' +
-    '注意：此 Key 仅用于本次获取模型列表，不会保存到服务器。',
-    ''
-  );
+  var apiKey = prompt('请输入 API Key（从 .env 中对应 ' + (apiKeyEnv || 'API_KEY') + ' 的值）：\n\n注意：此 Key 仅用于本次获取模型列表，不会保存到服务器。', '');
   if (!apiKey) return;
 
   btnFetch.disabled = true;
-  fetchStatus.textContent = '⏳ 获取中…';
+  fetchStatus.textContent = '获取中…';
   modelSelect.style.display = 'none';
 
   var formData = new URLSearchParams();
@@ -522,20 +495,19 @@ btnFetch.addEventListener('click', function() {
         modelSelect.appendChild(opt);
       });
       modelSelect.style.display = 'block';
-      fetchStatus.innerHTML = '<span style="color:#10b981;">✅ 获取到 ' + data.models.length + ' 个模型</span>';
+      fetchStatus.innerHTML = '<span style="color:var(--success);">获取到 ' + data.models.length + ' 个模型</span>';
     } else {
-      fetchStatus.innerHTML = '<span style="color:#ef4444;">❌ ' + escapeHtml(data.error || '未返回模型列表') + '</span>';
+      fetchStatus.innerHTML = '<span style="color:var(--error);">' + escapeHtml(data.error || '未返回模型列表') + '</span>';
     }
   })
   .catch(function(err) {
-    fetchStatus.innerHTML = '<span style="color:#ef4444;">❌ 请求失败: ' + escapeHtml(String(err)) + '</span>';
+    fetchStatus.innerHTML = '<span style="color:var(--error);">请求失败: ' + escapeHtml(String(err)) + '</span>';
   })
   .finally(function() {
     btnFetch.disabled = false;
   });
 });
 
-// ── 删除确认 ──
 document.querySelectorAll('form[data-confirm]').forEach(function(form) {
   form.addEventListener('submit', function(e) {
     if (!confirm(form.getAttribute('data-confirm'))) {

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}配置中心{% endblock %}
 {% block content %}
-<h1 class="page-title">⚙ 配置中心</h1>
+<h1 class="page-title">配置中心</h1>
 <p class="page-subtitle">管理剧情和机器人行为参数。保存后自动备份 .env，部分参数需重启生效。</p>
 
 <form method="post" action="{{ url_for('config_center.save') }}">
@@ -9,46 +9,48 @@
 
   {% for cfg in configs %}
   <div class="card">
-    <div class="config-item">
-      <div class="config-info">
-        <div class="config-name">{{ cfg.name }}</div>
-        <div class="config-desc">{{ cfg.desc }}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-4);flex-wrap:wrap;">
+      <div style="flex:1;min-width:200px;">
+        <div style="font-weight:600;color:var(--text-primary);margin-bottom:var(--space-1);">{{ cfg.name }}</div>
+        <div style="font-size:var(--text-sm);color:var(--text-muted);">{{ cfg.desc }}</div>
         {% if cfg.range %}
-        <div class="config-range">推荐范围：{{ cfg.range[0] }} ~ {{ cfg.range[1] }}</div>
+        <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1);">推荐范围：{{ cfg.range[0] }} ~ {{ cfg.range[1] }}</div>
         {% endif %}
       </div>
-      <div class="config-input">
+      <div style="min-width:140px;">
         {% set cur_val = current_values.get(cfg.key, '') %}
 
         {% if cfg.type == 'select' %}
-          <select name="{{ cfg.key }}">
+          <select name="{{ cfg.key }}" class="form-select">
           {% for opt in cfg.options %}
             <option value="{{ opt.value }}" {% if cur_val == opt.value %}selected{% endif %}>{{ opt.label }}</option>
           {% endfor %}
           </select>
 
         {% elif cfg.type == 'bool' %}
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">
             <input type="checkbox" name="{{ cfg.key }}" value="true" {% if cur_val == 'true' %}checked{% endif %}>
             <span>{% if cur_val == 'true' %}已开启{% else %}已关闭{% endif %}</span>
           </label>
 
         {% elif cfg.type == 'float' %}
-          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}"
+          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}" class="form-input"
                  {% if cfg.step %}step="{{ cfg.step }}"{% else %}step="0.01"{% endif %}>
 
         {% else %}
-          {# int 或其他 #}
-          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}">
+          <input type="number" name="{{ cfg.key }}" value="{{ cur_val }}" class="form-input">
         {% endif %}
       </div>
     </div>
   </div>
   {% endfor %}
 
-  <div class="btn-group" style="margin-top:20px;">
-    <button type="submit" class="btn btn-primary btn-lg">💾 保存全部配置</button>
-    <span class="text-muted" style="font-size:12px;margin-left:8px;">保存前会自动备份 .env 文件</span>
+  <div style="display:flex;gap:var(--space-3);align-items:center;margin-top:var(--space-5);">
+    <button type="submit" class="btn btn-primary">
+      <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+      保存全部配置
+    </button>
+    <span class="text-muted" style="font-size:var(--text-xs);">保存前会自动备份 .env 文件</span>
   </div>
 </form>
 {% endblock %}

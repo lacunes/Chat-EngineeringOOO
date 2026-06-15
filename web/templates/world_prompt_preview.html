@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Prompt 预览{% endblock %}
 {% block content %}
-<h1 class="page-title">📋 Prompt 预览 - {{ world_name }}</h1>
+<h1 class="page-title">Prompt 预览 - {{ world_name }}</h1>
 <p class="page-subtitle">以下是构建后发送给模型的完整系统提示词（含关系、时间等动态数据）</p>
 
 <div class="card">
@@ -10,6 +10,6 @@
 
 <div class="btn-group">
   <a href="{{ url_for('worlds.edit_world', name=world_name) }}" class="btn btn-ghost">← 返回编辑</a>
-  <a href="{{ url_for('worlds.list_worlds') }}" class="btn btn-ghost">🌍 世界列表</a>
+  <a href="{{ url_for('worlds.list_worlds') }}" class="btn btn-ghost">世界列表</a>
 </div>
 {% endblock %}

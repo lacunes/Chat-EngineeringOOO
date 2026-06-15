@@ -1,26 +1,33 @@
 {% extends "base.html" %}
 {% block title %}记忆管理{% endblock %}
 {% block content %}
-<h1 class="page-title">🧠 记忆管理</h1>
-<p class="page-subtitle">短期记忆共 {{ short_count }} 条，长期记忆共 {{ long_count }} 条（真实记忆）</p>
+<h1 class="page-title">记忆管理</h1>
+<p class="page-subtitle">短期记忆共 {{ short_count }} 条，长期记忆共 {{ long_count }} 条</p>
 
 <!-- 诊断信息 -->
-<div class="card" style="margin-bottom:16px;">
-  <div class="card-header"><h2>📋 诊断信息</h2></div>
-  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; font-size:13px;">
+<div class="card">
+  <div class="card-header"><h2>诊断信息</h2></div>
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:var(--space-2); font-size:var(--text-sm);">
     <div><b>当前世界：</b>{{ ctx.world.WORLD_NAME }}</div>
     <div><b>短期记忆文件：</b><code>{{ mem_status.chat.path }}</code></div>
     <div><b>短期消息数：</b>{{ mem_status.chat.count }} 条</div>
     <div><b>长期记忆文件：</b><code>{{ mem_status.long.path }}</code></div>
     <div><b>长期条目数：</b>{{ mem_status.long.count }} 条</div>
     <div><b>摘要文件：</b><code>{{ mem_status.summary.path }}</code></div>
-    <div><b>最近保存：</b>{{ mem_status.last_save_time }} {% if mem_status.last_save_ok %}✅{% else %}❌{% endif %}</div>
+    <div>
+      <b>最近保存：</b>{{ mem_status.last_save_time }}
+      {% if mem_status.last_save_ok %}
+      <span class="badge badge-success" style="margin-left:var(--space-1);">正常</span>
+      {% else %}
+      <span class="badge badge-error" style="margin-left:var(--space-1);">失败</span>
+      {% endif %}
+    </div>
     <div><b>最近备份：</b>{{ mem_status.chat.mtime }}</div>
-    <div><b>曾从旧路径恢复：</b>{{ '⚠️ 是' if mem_status.was_recovered else '否' }}</div>
-    <div><b>空内容拒绝保护触发：</b>{{ '⚠️ 是' if empty_protection_triggered else '否' }}</div>
+    <div><b>曾从旧路径恢复：</b>{{ '是' if mem_status.was_recovered else '否' }}</div>
+    <div><b>空内容拒绝保护：</b>{{ '已触发' if empty_protection_triggered else '未触发' }}</div>
   </div>
   {% if last_call %}
-  <div style="margin-top:12px; padding-top:8px; border-top:1px solid var(--border-color);">
+  <div style="margin-top:var(--space-3);padding-top:var(--space-3);border-top:1px solid var(--border);">
     <b>最近 LLM 调用：</b>
     provider={{ last_call.provider }} | model={{ last_call.model }}
     | max_tokens={{ last_call.max_tokens }} | temperature={{ last_call.temperature }}
@@ -28,7 +35,7 @@
     {% if last_call.error_type %}| error={{ last_call.error_type }}{% endif %}
   </div>
   {% endif %}
-  <div style="margin-top:8px; padding-top:8px; border-top:1px solid var(--border-color);">
+  <div style="margin-top:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--border);">
     <b>回复长度：</b>
     MIN={{ reply_params.MIN_REPLY_TOKENS }} |
     MID={{ reply_params.MID_REPLY_TOKENS }} |
@@ -37,14 +44,17 @@
   </div>
 </div>
 
-<!-- 长期记忆：新增长条 -->
+<!-- 新增长期记忆 -->
 <div class="card">
   <div class="card-header"><h2>新增长期记忆</h2></div>
   <form method="post" action="{{ url_for('memory.add_long_memory') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <textarea name="content" rows="3" placeholder="输入新记忆内容…" required></textarea>
-    <div class="btn-group" style="margin-top:8px;">
-      <button type="submit" class="btn btn-primary">💾 写入长期记忆</button>
+    <textarea name="content" rows="3" class="form-input" placeholder="输入新记忆内容…" required></textarea>
+    <div style="margin-top:var(--space-2);">
+      <button type="submit" class="btn btn-primary">
+        <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+        写入长期记忆
+      </button>
     </div>
   </form>
 </div>
@@ -53,41 +63,58 @@
 <div class="card">
   <div class="card-header">
     <h2>长期记忆（{{ long_items|length }} 条）</h2>
-    <form method="post" action="{{ url_for('memory.cleanup_long_memory') }}" style="display:inline">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-ghost btn-sm" data-confirm="确认清理长期记忆垃圾？会自动备份后删除 ```json、[、]、``` 等无效条目。">🧹 清理垃圾</button>
-    </form>
-    <form method="post" action="{{ url_for('memory.refine_long_memory') }}" style="display:inline">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-      <button type="submit" class="btn btn-ghost btn-sm" data-confirm="确认精炼长期记忆？AI 将去重合并，保留核心信息。">🔧 精炼长期记忆</button>
-    </form>
+    <div style="display:flex;gap:var(--space-2);">
+      <form method="post" action="{{ url_for('memory.cleanup_long_memory') }}" style="display:inline">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-ghost btn-sm" data-confirm="确认清理长期记忆垃圾？会自动备份后删除无效条目。">清理垃圾</button>
+      </form>
+      <form method="post" action="{{ url_for('memory.refine_long_memory') }}" style="display:inline">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-ghost btn-sm" data-confirm="确认精炼长期记忆？AI 将去重合并，保留核心信息。">精炼记忆</button>
+      </form>
+    </div>
   </div>
   {% if long_items %}
     {% for item in long_items %}
-    <div class="memory-card" id="mem-card-{{ loop.index0 }}">
-      <div class="mem-index">#{{ loop.index }}</div>
-      <div class="mem-text mem-display" id="mem-display-{{ loop.index0 }}">{{ item }}</div>
-      <div class="mem-editor hidden" id="mem-editor-{{ loop.index0 }}">
-        <form method="post" action="{{ url_for('memory.edit_long_memory', index=loop.index0) }}" style="margin-top:8px;">
-          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <textarea name="content" rows="3" class="mem-textarea" id="mem-textarea-{{ loop.index0 }}"></textarea>
-          <div class="btn-group" style="margin-top:8px;">
-            <button type="submit" class="btn btn-primary btn-sm">💾 保存</button>
-            <button type="button" class="btn btn-ghost btn-sm mem-cancel-btn">取消</button>
+    <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:var(--space-3);margin-bottom:var(--space-2);" id="mem-card-{{ loop.index0 }}">
+      <div style="display:flex;align-items:start;gap:var(--space-3);">
+        <div style="font-size:var(--text-xs);color:var(--text-muted);min-width:30px;padding-top:2px;">#{{ loop.index }}</div>
+        <div style="flex:1;">
+          <div class="mem-display" id="mem-display-{{ loop.index0 }}" style="font-size:var(--text-sm);line-height:var(--lh-relaxed);">{{ item }}</div>
+          <div class="mem-editor hidden" id="mem-editor-{{ loop.index0 }}">
+            <form method="post" action="{{ url_for('memory.edit_long_memory', index=loop.index0) }}" style="margin-top:var(--space-2);">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <textarea name="content" rows="3" class="form-input mem-textarea" id="mem-textarea-{{ loop.index0 }}"></textarea>
+              <div style="display:flex;gap:var(--space-2);margin-top:var(--space-2);">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+                  保存
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm mem-cancel-btn">取消</button>
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
-      <div class="mem-actions">
-        <button type="button" class="btn btn-ghost btn-sm mem-edit-btn">✏️ 编辑</button>
-        <form method="post" action="{{ url_for('memory.delete_long_memory', index=loop.index0) }}" style="display:inline">
-          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-danger btn-sm" data-confirm="确认删除这条长期记忆？">删除</button>
-        </form>
+        </div>
+        <div style="display:flex;gap:var(--space-1);flex-shrink:0;">
+          <button type="button" class="btn btn-ghost btn-sm mem-edit-btn">
+            <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#pencil"/></svg>
+            编辑
+          </button>
+          <form method="post" action="{{ url_for('memory.delete_long_memory', index=loop.index0) }}" style="display:inline">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger btn-sm" data-confirm="确认删除这条长期记忆？">
+              <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#trash-2"/></svg>
+              删除
+            </button>
+          </form>
+        </div>
       </div>
     </div>
     {% endfor %}
   {% else %}
-    <div class="empty-state"><p>暂无长期记忆</p></div>
+    <div style="text-align:center;padding:var(--space-8);color:var(--text-muted);">
+      <p>暂无长期记忆</p>
+    </div>
   {% endif %}
 </div>
 
@@ -95,14 +122,14 @@
 <div class="card">
   <div class="card-header"><h2>短期记忆（最近 {{ short_messages|length }} 条）</h2></div>
   {% if short_messages %}
-  <div class="table-scroll">
-    <table class="data-table">
+  <div class="table-wrap">
+    <table>
       <thead><tr><th style="width:50px;">#</th><th style="width:80px;">角色</th><th>内容</th></tr></thead>
       <tbody>
       {% for msg in short_messages %}
       <tr>
         <td style="text-align:right;color:var(--text-muted);">{{ loop.index }}</td>
-        <td><span class="badge {% if msg.role == 'user' %}badge-blue{% elif msg.role == 'assistant' %}badge-green{% else %}badge-orange{% endif %}">{{ msg.role }}</span></td>
+        <td><span class="badge {{ 'badge-info' if msg.role == 'user' else 'badge-success' if msg.role == 'assistant' else 'badge-warning' }}">{{ msg.role }}</span></td>
         <td>{{ msg.content[:300] }}{% if msg.content|length > 300 %}…{% endif %}</td>
       </tr>
       {% endfor %}
@@ -110,7 +137,9 @@
     </table>
   </div>
   {% else %}
-    <div class="empty-state"><p>暂无短期记忆</p></div>
+    <div style="text-align:center;padding:var(--space-8);color:var(--text-muted);">
+      <p>暂无短期记忆</p>
+    </div>
   {% endif %}
 </div>
 {% endblock %}

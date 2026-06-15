@@ -1,0 +1,67 @@
+{# 导演台 — 可复用组件宏 #}
+
+{# SVG Icon
+   用法: {{ icon('database', size=18, class='nav-icon') }}
+   所有图标来自 static/icons/icons.svg sprite #}
+{% macro icon(name, size=18, class='') -%}
+<svg class="icon {{ class }}" width="{{ size }}" height="{{ size }}" aria-hidden="true">
+  <use href="{{ url_for('static', filename='icons/icons.svg') }}#{{ name }}"/>
+</svg>
+{%- endmacro %}
+
+
+{# Icon Button
+   用法: {{ icon_btn('trash-2', '删除', danger=true) }}
+#}
+{% macro icon_btn(name, label, size=16, danger=false, class='') -%}
+<button type="button" class="btn btn-ghost btn-sm {{ 'btn-danger' if danger else '' }} {{ class }}"
+        data-tooltip="{{ label }}" aria-label="{{ label }}">
+  {{ icon(name, size) }}
+  {% if not class %}<span>{{ label }}</span>{% endif %}
+</button>
+{%- endmacro %}
+
+
+{# Badge
+   用法: {{ badge('success', '正常') }}
+#}
+{% macro badge(kind, text) -%}
+<span class="badge badge-{{ kind }}">{{ text }}</span>
+{%- endmacro %}
+
+
+{# Status Dot
+   用法: {{ status_dot('green') }}
+#}
+{% macro status_dot(color) -%}
+<span class="status-dot {{ color }}" aria-hidden="true"></span>
+{%- endmacro %}
+
+
+{# Empty State
+   用法: {{ empty_state('database', '暂无长期记忆') }}
+#}
+{% macro empty_state(icon_name, message, hint='') -%}
+<div style="text-align:center;padding:var(--space-10) var(--space-4);color:var(--text-muted);">
+  <div style="margin-bottom:var(--space-3);opacity:.4;">
+    {{ icon(icon_name, 40) }}
+  </div>
+  <p style="font-size:var(--text-base);margin-bottom:var(--space-1);">{{ message }}</p>
+  {% if hint %}<p style="font-size:var(--text-sm);">{{ hint }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# Section Header with action button
+   用法: {{ section_header('长期记忆', action_url=url_for('memory.add'), action_label='新增', action_icon='plus') }}
+#}
+{% macro section_header(title, action_url='', action_label='', action_icon='plus') -%}
+<div class="card-header">
+  <h2>{{ title }}</h2>
+  {% if action_url %}
+  <a href="{{ action_url }}" class="btn btn-secondary btn-sm">
+    {{ icon(action_icon, 14) }} {{ action_label }}
+  </a>
+  {% endif %}
+</div>
+{%- endmacro %}

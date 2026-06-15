@@ -1,16 +1,23 @@
 {% extends "base.html" %}
 {% block title %}日志{% endblock %}
 {% block content %}
-<h1 class="page-title">📜 日志</h1>
+<h1 class="page-title">日志</h1>
 <p class="page-subtitle">文件: {{ log_path }}（最新 100 行）</p>
 
 <div class="card">
   {% if lines %}
     {% for line in lines %}
-    <div class="log-line {% if 'WARNING' in line %}warn{% elif 'ERROR' in line %}error{% elif 'INFO' in line %}info{% endif %}">{{ line }}</div>
+    <div style="font-family:var(--font-mono);font-size:var(--text-xs);line-height:1.5;padding:2px 0;color:
+      {%- if 'ERROR' in line -%}var(--error)
+      {%- elif 'WARNING' in line -%}var(--warning)
+      {%- elif 'INFO' in line -%}var(--text-secondary)
+      {%- else -%}var(--text-muted){%- endif -%}
+    ;word-break:break-all;">{{ line }}</div>
     {% endfor %}
   {% else %}
-    <div class="empty-state"><p>暂无日志</p></div>
+    <div style="text-align:center;padding:var(--space-8);color:var(--text-muted);">
+      <p>暂无日志</p>
+    </div>
   {% endif %}
 </div>
 {% endblock %}

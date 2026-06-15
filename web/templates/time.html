@@ -1,37 +1,40 @@
 {% extends "base.html" %}
-{% block title %}时间与节奏{% endblock %}
+{% block title %}时间{% endblock %}
 {% block content %}
-<h1 class="page-title">⏰ 时间与剧情节奏</h1>
+<h1 class="page-title">时间与剧情节奏</h1>
 <p class="page-subtitle">{{ world_name }} — 第{{ day }}天 · {{ season }} · {{ time_period }}{% if rounds_in_period %}（已持续 {{ rounds_in_period }} 轮）{% endif %}</p>
 
-<!-- 时间状态 -->
+<!-- 当前时间 -->
 <div class="card">
   <div class="card-header"><h2>当前时间</h2></div>
   <form method="post" action="{{ url_for('time_routes.save') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="action" value="save">
-    <div class="btn-group" style="align-items:end;">
+    <div style="display:flex;gap:var(--space-3);align-items:end;flex-wrap:wrap;">
       <div class="form-group" style="margin-bottom:0;">
-        <label>天数</label>
-        <input type="number" name="day" value="{{ day }}" min="1" style="width:80px;">
+        <label class="form-label">天数</label>
+        <input type="number" name="day" value="{{ day }}" min="1" class="form-input" style="width:80px;">
       </div>
       <div class="form-group" style="margin-bottom:0;">
-        <label>时段</label>
-        <select name="time_period" style="width:auto;">
+        <label class="form-label">时段</label>
+        <select name="time_period" class="form-select" style="width:auto;">
           {% for p in ['清晨','上午','中午','下午','傍晚','夜晚','深夜'] %}
           <option value="{{ p }}" {% if p == time_period %}selected{% endif %}>{{ p }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="form-group" style="margin-bottom:0;">
-        <label>季节</label>
-        <select name="season" style="width:auto;">
+        <label class="form-label">季节</label>
+        <select name="season" class="form-select" style="width:auto;">
           {% for s in ['春','夏','秋','冬'] %}
           <option value="{{ s }}" {% if s == season %}selected{% endif %}>{{ s }}</option>
           {% endfor %}
         </select>
       </div>
-      <button type="submit" class="btn btn-primary">💾 保存</button>
+      <button type="submit" class="btn btn-primary">
+        <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+        保存
+      </button>
     </div>
   </form>
 </div>
@@ -39,16 +42,16 @@
 <!-- 快速推进 -->
 <div class="card">
   <div class="card-header"><h2>快速推进</h2></div>
-  <div class="btn-group">
+  <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
     <form method="post" action="{{ url_for('time_routes.save') }}" style="display:inline">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="advance_period">
-      <button type="submit" class="btn btn-primary">⏭ 推进时段</button>
+      <button type="submit" class="btn btn-primary">推进时段</button>
     </form>
     <form method="post" action="{{ url_for('time_routes.save') }}" style="display:inline">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="action" value="advance_day">
-      <button type="submit" class="btn btn-warning">📅 推进一天</button>
+      <button type="submit" class="btn btn-secondary">推进一天</button>
     </form>
   </div>
 </div>
@@ -62,31 +65,36 @@
     <input type="hidden" name="day" value="{{ day }}">
     <input type="hidden" name="time_period" value="{{ time_period }}">
     <input type="hidden" name="season" value="{{ season }}">
-    <textarea name="recent_days" rows="6">{{ recent_days|join('\n') }}</textarea>
-    <button type="submit" class="btn btn-primary" style="margin-top:8px;">💾 保存摘要</button>
+    <textarea name="recent_days" rows="6" class="form-input" style="margin-bottom:var(--space-2);">{{ recent_days|join('\n') }}</textarea>
+    <button type="submit" class="btn btn-primary">
+      <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+      保存摘要
+    </button>
   </form>
   {% if recent_days %}
-  <table class="data-table" style="margin-top:12px;">
-    {% for note in recent_days %}
-    <tr>
-      <td style="width:40px;text-align:right;color:var(--text-muted);">{{ loop.index }}</td>
-      <td>{{ note }}</td>
-      <td style="width:60px;text-align:center;">
-        <form method="post" action="{{ url_for('time_routes.delete_note', index=loop.index0) }}" style="display:inline">
-          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn btn-danger btn-sm">删除</button>
-        </form>
-      </td>
-    </tr>
-    {% endfor %}
-  </table>
+  <div class="table-wrap" style="margin-top:var(--space-3);">
+    <table>
+      {% for note in recent_days %}
+      <tr>
+        <td style="width:40px;text-align:right;color:var(--text-muted);">{{ loop.index }}</td>
+        <td>{{ note }}</td>
+        <td style="width:60px;text-align:center;">
+          <form method="post" action="{{ url_for('time_routes.delete_note', index=loop.index0) }}" style="display:inline">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger btn-sm">删除</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
   {% endif %}
 </div>
 
 <!-- 剧情节奏控制 -->
 <div class="card">
-  <div class="card-header"><h2>🎬 剧情节奏控制</h2></div>
-  <p class="text-muted" style="margin-bottom:16px;">
+  <div class="card-header"><h2>剧情节奏控制</h2></div>
+  <p class="text-muted" style="margin-bottom:var(--space-4);font-size:var(--text-sm);">
     这些设置会写入 runtime_directive.json，在下一次生成回复时作为临时导演提示注入，
     不会永久污染长期记忆。关闭后指令即失效。
   </p>
@@ -95,41 +103,44 @@
     <input type="hidden" name="action" value="save_directive">
 
     <div class="form-group">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+      <label style="display:flex;align-items:center;gap:var(--space-2);cursor:pointer;">
         <input type="checkbox" name="directive_enabled" value="true" {% if directive.get('enabled') %}checked{% endif %}>
         <span>启用剧情节奏指令</span>
       </label>
-      <div class="hint">启用后，每次 AI 生成回复时会注入导演倾向提示。</div>
+      <p class="text-muted" style="font-size:var(--text-xs);">启用后，每次 AI 生成回复时会注入导演倾向提示。</p>
     </div>
 
     <div class="form-group">
-      <label>当前剧情阶段</label>
-      <select name="story_phase">
+      <label class="form-label">当前剧情阶段</label>
+      <select name="story_phase" class="form-select">
         {% for phase in story_phases %}
         <option value="{{ phase }}" {% if directive.get('story_phase') == phase %}selected{% endif %}>{{ phase }}</option>
         {% endfor %}
       </select>
-      <div class="hint">告诉 AI 当前处于什么剧情氛围中。</div>
+      <p class="text-muted" style="font-size:var(--text-xs);">告诉 AI 当前处于什么剧情氛围中。</p>
     </div>
 
     <div class="form-group">
-      <label>下一轮倾向</label>
-      <select name="next_tendency">
+      <label class="form-label">下一轮倾向</label>
+      <select name="next_tendency" class="form-select">
         {% for t in next_tendencies %}
         <option value="{{ t }}" {% if directive.get('next_tendency') == t %}selected{% endif %}>{{ t }}</option>
         {% endfor %}
       </select>
-      <div class="hint">引导 AI 在接下来的回复中倾向于什么方向。</div>
+      <p class="text-muted" style="font-size:var(--text-xs);">引导 AI 在接下来的回复中倾向于什么方向。</p>
     </div>
 
-    <button type="submit" class="btn btn-primary">💾 保存节奏指令</button>
+    <button type="submit" class="btn btn-primary">
+      <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+      保存节奏指令
+    </button>
   </form>
 </div>
 
 <!-- 剧情状态编辑 -->
 <div class="card">
-  <div class="card-header"><h2>📖 剧情状态</h2></div>
-  <p class="text-muted" style="margin-bottom:16px;">
+  <div class="card-header"><h2>剧情状态</h2></div>
+  <p class="text-muted" style="margin-bottom:var(--space-4);font-size:var(--text-sm);">
     这些设置写入 story_state.json，注入主聊天 dynamic_state。纯本地管理，不调用 API。
     留空的字段不会出现在 prompt 中。
   </p>
@@ -137,77 +148,80 @@
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="action" value="save_story_state">
 
-    <div class="stats-row" style="margin-bottom:12px;">
-      <div class="form-group" style="flex:1;min-width:150px;">
-        <label>章节</label>
-        <input type="text" name="ss_chapter" value="{{ story_state.chapter }}" placeholder="如：初遇">
-        <div class="hint">当前章节标题。</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);margin-bottom:var(--space-3);">
+      <div class="form-group">
+        <label class="form-label">章节</label>
+        <input type="text" name="ss_chapter" value="{{ story_state.chapter }}" class="form-input" placeholder="如：初遇">
+        <p class="text-muted" style="font-size:var(--text-xs);">当前章节标题。</p>
       </div>
-      <div class="form-group" style="flex:1;min-width:150px;">
-        <label>场景</label>
-        <input type="text" name="ss_scene" value="{{ story_state.scene }}" placeholder="如：A家中">
-        <div class="hint">当前场景名称。</div>
+      <div class="form-group">
+        <label class="form-label">场景</label>
+        <input type="text" name="ss_scene" value="{{ story_state.scene }}" class="form-input" placeholder="如：A家中">
+        <p class="text-muted" style="font-size:var(--text-xs);">当前场景名称。</p>
       </div>
-      <div class="form-group" style="flex:1;min-width:150px;">
-        <label>地点</label>
-        <input type="text" name="ss_location" value="{{ story_state.location }}" placeholder="如：B的公寓">
-        <div class="hint">当前发生地点。</div>
+      <div class="form-group">
+        <label class="form-label">地点</label>
+        <input type="text" name="ss_location" value="{{ story_state.location }}" class="form-input" placeholder="如：B的公寓">
+        <p class="text-muted" style="font-size:var(--text-xs);">当前发生地点。</p>
       </div>
-      <div class="form-group" style="flex:0 0 140px;">
-        <label>节奏</label>
-        <select name="ss_pacing">
+      <div class="form-group">
+        <label class="form-label">节奏</label>
+        <select name="ss_pacing" class="form-select">
           {% for p in pacing_options %}
           <option value="{{ p }}" {% if story_state.pacing == p %}selected{% endif %}>{{ p }}</option>
           {% endfor %}
         </select>
-        <div class="hint">slow / normal / intense</div>
+        <p class="text-muted" style="font-size:var(--text-xs);">slow / normal / intense</p>
       </div>
     </div>
 
     <div class="form-group">
-      <label>在场角色</label>
-      <input type="text" name="ss_active_chars" value="{{ story_state.active_characters|join(', ') }}" placeholder="逗号分隔，如：A, B, 旅馆老板">
-      <div class="hint">当前场景中在场的角色。</div>
+      <label class="form-label">在场角色</label>
+      <input type="text" name="ss_active_chars" value="{{ story_state.active_characters|join(', ') }}" class="form-input" placeholder="逗号分隔，如：A, B, 旅馆老板">
+      <p class="text-muted" style="font-size:var(--text-xs);">当前场景中在场的角色。</p>
     </div>
 
-    <div class="stats-row" style="margin-bottom:12px;">
-      <div class="form-group" style="flex:1;">
-        <label>当前冲突</label>
-        <input type="text" name="ss_conflict" value="{{ story_state.current_conflict }}" placeholder="如：B缺乏安全感">
-        <div class="hint">当前主要矛盾或紧张关系。</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+      <div class="form-group">
+        <label class="form-label">当前冲突</label>
+        <input type="text" name="ss_conflict" value="{{ story_state.current_conflict }}" class="form-input" placeholder="如：B缺乏安全感">
+        <p class="text-muted" style="font-size:var(--text-xs);">当前主要矛盾或紧张关系。</p>
       </div>
-      <div class="form-group" style="flex:1;">
-        <label>当前目标</label>
-        <input type="text" name="ss_goal" value="{{ story_state.current_goal }}" placeholder="如：帮助B适应环境">
-        <div class="hint">剧情当前的推进方向。</div>
+      <div class="form-group">
+        <label class="form-label">当前目标</label>
+        <input type="text" name="ss_goal" value="{{ story_state.current_goal }}" class="form-input" placeholder="如：帮助B适应环境">
+        <p class="text-muted" style="font-size:var(--text-xs);">剧情当前的推进方向。</p>
       </div>
     </div>
 
-    <div class="stats-row" style="margin-bottom:12px;">
-      <div class="form-group" style="flex:1;">
-        <label>允许事件</label>
-        <input type="text" name="ss_allowed" value="{{ story_state.allowed_events|join(', ') }}" placeholder="逗号分隔关键词">
-        <div class="hint">命中关键词的 NPC 事件概率 ×1.5（不影响正常触发的 NPC）。</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3);">
+      <div class="form-group">
+        <label class="form-label">允许事件</label>
+        <input type="text" name="ss_allowed" value="{{ story_state.allowed_events|join(', ') }}" class="form-input" placeholder="逗号分隔关键词">
+        <p class="text-muted" style="font-size:var(--text-xs);">命中关键词的 NPC 事件概率 ×1.5。</p>
       </div>
-      <div class="form-group" style="flex:1;">
-        <label>禁止事件</label>
-        <input type="text" name="ss_forbidden" value="{{ story_state.forbidden_events|join(', ') }}" placeholder="逗号分隔关键词">
-        <div class="hint">命中关键词的 NPC 事件将被过滤（不发出舞台指令）。</div>
+      <div class="form-group">
+        <label class="form-label">禁止事件</label>
+        <input type="text" name="ss_forbidden" value="{{ story_state.forbidden_events|join(', ') }}" class="form-input" placeholder="逗号分隔关键词">
+        <p class="text-muted" style="font-size:var(--text-xs);">命中关键词的 NPC 事件将被过滤。</p>
       </div>
     </div>
 
     <div class="form-group">
-      <label>最近重大事件</label>
-      <input type="text" name="ss_last_event" value="{{ story_state.last_major_event }}" placeholder="一句话描述最近发生的重大事件">
+      <label class="form-label">最近重大事件</label>
+      <input type="text" name="ss_last_event" value="{{ story_state.last_major_event }}" class="form-input" placeholder="一句话描述最近发生的重大事件">
     </div>
 
     <div class="form-group">
-      <label>导演备注</label>
-      <textarea name="ss_notes" rows="3" placeholder="给自己看的备注，不会注入 prompt">{{ story_state.notes }}</textarea>
-      <div class="hint">仅存档参考，不会发给 AI。</div>
+      <label class="form-label">导演备注</label>
+      <textarea name="ss_notes" rows="3" class="form-input" placeholder="给自己看的备注，不会注入 prompt">{{ story_state.notes }}</textarea>
+      <p class="text-muted" style="font-size:var(--text-xs);">仅存档参考，不会发给 AI。</p>
     </div>
 
-    <button type="submit" class="btn btn-primary">💾 保存剧情状态</button>
+    <button type="submit" class="btn btn-primary">
+      <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+      保存剧情状态
+    </button>
   </form>
 </div>
 {% endblock %}

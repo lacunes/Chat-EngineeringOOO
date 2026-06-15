@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}记忆污染检查{% endblock %}
 {% block content %}
-<h1 class="page-title">🔍 长期记忆污染检查</h1>
+<h1 class="page-title">长期记忆污染检查</h1>
 <p class="page-subtitle">帮助检查长期记忆中的重复、矛盾、过时、幻觉风险等问题。当前共 {{ long_count }} 条长期记忆。</p>
 
 <!-- 运行检查 -->
@@ -15,12 +15,12 @@
     <form method="post" action="{{ url_for('memory_audit.run_audit') }}" style="display:inline">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="mode" value="rules">
-      <button type="submit" class="btn btn-ghost">🔬 仅规则检查</button>
+      <button type="submit" class="btn btn-ghost">仅规则检查</button>
     </form>
     <form method="post" action="{{ url_for('memory_audit.run_audit') }}" style="display:inline">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="mode" value="both">
-      <button type="submit" class="btn btn-primary" data-confirm="AI 检查会调用 DeepSeek API 并消耗 token，确认运行？">🔍 规则 + AI 检查</button>
+      <button type="submit" class="btn btn-primary" data-confirm="AI 检查会调用 DeepSeek API 并消耗 token，确认运行？">规则 + AI 检查</button>
     </form>
   </div>
 </div>
@@ -64,7 +64,7 @@
 {% else %}
 <div class="card">
   <div class="empty-state">
-    <div class="empty-icon">🔬</div>
+    <div class="empty-icon"><svg width="24" height="24"><use href="{{ url_for('static', filename='icons/icons.svg') }}#search"/></svg></div>
     <p>暂无检查报告。点击上方按钮开始检查。</p>
   </div>
 </div>

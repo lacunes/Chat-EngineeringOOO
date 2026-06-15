@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{ csrf_token() }}">
-<title>{% block title %}导演台{% endblock %} — AI 角色扮演</title>
+<title>{% block title %}概览{% endblock %} — 导演台</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
 <body>
@@ -13,50 +13,67 @@
   <!-- 左侧导航 -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-      🎬 导演台
+      <svg class="brand-icon" width="20" height="20" aria-hidden="true">
+        <use href="{{ url_for('static', filename='icons/icons.svg') }}#film"/>
+      </svg>
+      导演台
     </div>
+
     <nav class="sidebar-nav">
       <div class="nav-section">概览</div>
       <a href="{{ url_for('dashboard.index') }}" class="{% if request.endpoint and request.endpoint.startswith('dashboard') %}active{% endif %}">
-        <span class="nav-icon">📊</span> 仪表盘
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#layout-dashboard"/></svg>
+        仪表盘
       </a>
 
-      <div class="nav-section">剧情</div>
+      <div class="nav-section">世界</div>
       <a href="{{ url_for('config_center.index') }}" class="{% if request.endpoint and request.endpoint.startswith('config') %}active{% endif %}">
-        <span class="nav-icon">⚙</span> 配置中心
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#settings"/></svg>
+        配置中心
       </a>
       <a href="{{ url_for('worlds.list_worlds') }}" class="{% if request.endpoint and request.endpoint.startswith('worlds') %}active{% endif %}">
-        <span class="nav-icon">🌍</span> 世界编辑器
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#book-open"/></svg>
+        世界观
       </a>
       <a href="{{ url_for('time_routes.index') }}" class="{% if request.endpoint and request.endpoint.startswith('time_routes') %}active{% endif %}">
-        <span class="nav-icon">⏰</span> 时间与节奏
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#clock"/></svg>
+        时间
       </a>
 
       <div class="nav-section">记忆</div>
       <a href="{{ url_for('memory.short_memory') }}" class="{% if request.endpoint in ('memory.short_memory', 'memory.long_memory') %}active{% endif %}">
-        <span class="nav-icon">🧠</span> 记忆管理
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#database"/></svg>
+        记忆管理
       </a>
       <a href="{{ url_for('memory_audit.index') }}" class="{% if request.endpoint and request.endpoint.startswith('memory_audit') %}active{% endif %}">
-        <span class="nav-icon">🔍</span> 记忆检查
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#search"/></svg>
+        记忆检查
       </a>
 
-      <div class="nav-section">社交</div>
+      <div class="nav-section">角色</div>
       <a href="{{ url_for('relations.index') }}" class="{% if request.endpoint and request.endpoint.startswith('relations') %}active{% endif %}">
-        <span class="nav-icon">💞</span> 关系网络
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#network"/></svg>
+        关系网络
       </a>
 
       <div class="nav-section">系统</div>
       <a href="{{ url_for('providers.index') }}" class="{% if request.endpoint and request.endpoint.startswith('providers') %}active{% endif %}">
-        <span class="nav-icon">🔌</span> 模型管理
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#cpu"/></svg>
+        模型管理
       </a>
       <a href="{{ url_for('logs.index') }}" class="{% if request.endpoint and request.endpoint.startswith('logs') %}active{% endif %}">
-        <span class="nav-icon">📜</span> 日志
+        <svg class="nav-icon" width="18" height="18"><use href="{{ url_for('static', filename='icons/icons.svg') }}#file-text"/></svg>
+        日志
       </a>
     </nav>
+
     <div class="sidebar-footer">
       <form method="post" action="{{ url_for('auth.logout') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="logout-btn">🚪 退出登录</button>
+        <button type="submit" class="logout-btn">
+          <svg class="btn-icon" width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#log-out"/></svg>
+          退出登录
+        </button>
       </form>
     </div>
   </aside>
@@ -68,23 +85,32 @@
   <div class="main">
     <!-- 顶部状态栏 -->
     <div class="topbar">
-      <button class="mobile-menu-btn" id="mobile-menu-btn" title="菜单">☰</button>
-      <span>
-        <span class="dot green"></span> Bot 运行中
-      </span>
+      <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="菜单" title="菜单">
+        <svg width="20" height="20"><use href="{{ url_for('static', filename='icons/icons.svg') }}#menu"/></svg>
+      </button>
+
+      <span class="status-dot green"></span>
+      <span>运行中</span>
+
+      <span class="spacer"></span>
+
       <span>世界：<strong>{{ ctx.world.WORLD_NAME }}</strong></span>
       <span>模型：<strong>
         {% if ctx.client.router %}
-          {{ ctx.client.router.get_dashboard_status().get('current_model') or '等待首次调用' }}
+          {{ ctx.client.router.get_dashboard_status().get('current_model') or '—' }}
         {% else %}
           —
         {% endif %}
       </strong></span>
-      <span class="spacer"></span>
-      <span>运行：{{ uptime or '--' }}</span>
+      <span>运行：{{ uptime or '—' }}</span>
+
+      <button class="theme-toggle" id="theme-toggle" aria-label="切换主题" title="切换浅色/暗色模式">
+        <svg class="theme-icon" id="theme-icon-light"><use href="{{ url_for('static', filename='icons/icons.svg') }}#moon"/></svg>
+        <svg class="theme-icon hidden" id="theme-icon-dark"><use href="{{ url_for('static', filename='icons/icons.svg') }}#sun"/></svg>
+      </button>
     </div>
 
-    <!-- 内容 -->
+    <!-- 内容区 -->
     <div class="content">
       <div id="flash-container" class="flash-msg"></div>
       {% block content %}{% endblock %}
@@ -94,6 +120,55 @@
 </div>
 
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script>
+// Theme toggle
+(function() {
+  const html = document.documentElement;
+  const btn = document.getElementById('theme-toggle');
+  const iconLight = document.getElementById('theme-icon-light');
+  const iconDark = document.getElementById('theme-icon-dark');
+
+  // Load saved theme
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark') {
+    html.setAttribute('data-theme', 'dark');
+    iconLight.classList.add('hidden');
+    iconDark.classList.remove('hidden');
+  }
+
+  btn.addEventListener('click', function() {
+    const current = html.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+
+    if (next === 'dark') {
+      iconLight.classList.add('hidden');
+      iconDark.classList.remove('hidden');
+    } else {
+      iconLight.classList.remove('hidden');
+      iconDark.classList.add('hidden');
+    }
+  });
+})();
+
+// Mobile sidebar toggle
+(function() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  const btn = document.getElementById('mobile-menu-btn');
+
+  function open() { sidebar.classList.add('open'); overlay.classList.add('open'); }
+  function close() { sidebar.classList.remove('open'); overlay.classList.remove('open'); }
+
+  btn.addEventListener('click', function(e) { e.stopPropagation(); open(); });
+  overlay.addEventListener('click', close);
+  // Close on nav click (mobile)
+  sidebar.querySelectorAll('.sidebar-nav a').forEach(function(a) {
+    a.addEventListener('click', function() { if (window.innerWidth <= 768) close(); });
+  });
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

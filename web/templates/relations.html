@@ -1,23 +1,26 @@
 {% extends "base.html" %}
 {% block title %}关系网络{% endblock %}
 {% block content %}
-<h1 class="page-title">💞 关系网络</h1>
+<h1 class="page-title">关系网络</h1>
 <p class="page-subtitle">角色间关系管理（0-100 正常，110=锁死极高，-100=锁死极低）</p>
 
-<div class="mode-bar">
-  <span class="text-muted">表格编辑模式</span>
-  <a href="{{ url_for('relations.index', mode='raw') }}">📝 高级模式（JSON 编辑）</a>
+<div style="display:flex;gap:var(--space-3);align-items:center;margin-bottom:var(--space-4);">
+  <span class="text-muted" style="font-size:var(--text-sm);">表格编辑模式</span>
+  <a href="{{ url_for('relations.index', mode='raw') }}" class="btn btn-ghost btn-sm">
+    <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#pencil"/></svg>
+    高级模式（JSON 编辑）
+  </a>
 </div>
 
-{% if error %}<div class="flash-msg flash-error show">{{ error }}</div>{% endif %}
+{% if error %}<div class="flash-msg flash-error" style="margin-bottom:var(--space-3);">{{ error }}</div>{% endif %}
 
 <div class="card">
   <form method="post" action="{{ url_for('relations.save') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="mode" value="structured">
 
-    <div class="table-scroll">
-      <table class="data-table" style="font-size:13px;">
+    <div class="table-wrap">
+      <table>
         <thead>
           <tr>
             <th>从</th><th>到</th>
@@ -30,58 +33,64 @@
           {% for key, rel in relations.items() %}
           {% set parts = key.split('->') %}
           <tr>
-            <td><input type="text" name="rel_{{ loop.index0 }}_from" value="{{ parts[0] }}" style="width:70px;"></td>
-            <td><input type="text" name="rel_{{ loop.index0 }}_to" value="{{ parts[1] if parts|length > 1 else '' }}" style="width:70px;"></td>
+            <td><input type="text" name="rel_{{ loop.index0 }}_from" value="{{ parts[0] }}" class="form-input" style="width:70px;"></td>
+            <td><input type="text" name="rel_{{ loop.index0 }}_to" value="{{ parts[1] if parts|length > 1 else '' }}" class="form-input" style="width:70px;"></td>
             {% for dim, _ in dim_labels %}
-            <td><input type="number" name="rel_{{ loop.index0 }}_{{ dim }}" value="{{ rel.get(dim, 0) }}" min="-100" max="110" style="width:60px;text-align:center;"></td>
+            <td><input type="number" name="rel_{{ loop.index0 }}_{{ dim }}" value="{{ rel.get(dim, 0) }}" min="-100" max="110" class="form-input" style="width:60px;text-align:center;"></td>
             {% endfor %}
-            <td><textarea name="rel_{{ loop.index0 }}_notes" rows="2" style="width:140px;">{{ rel.get('notes', [])|join('\n') }}</textarea></td>
-            <td><label style="font-size:11px;white-space:nowrap;"><input type="checkbox" name="rel_{{ loop.index0 }}_delete" value="1"> 删</label></td>
+            <td><textarea name="rel_{{ loop.index0 }}_notes" rows="2" class="form-input" style="width:140px;">{{ rel.get('notes', [])|join('\n') }}</textarea></td>
+            <td><label style="font-size:var(--text-xs);white-space:nowrap;"><input type="checkbox" name="rel_{{ loop.index0 }}_delete" value="1"> 删除</label></td>
           </tr>
           {% endfor %}
         {% else %}
-          <tr><td colspan="10" class="empty-state"><p>暂无关系数据</p></td></tr>
+          <tr><td colspan="10">
+            <div style="text-align:center;padding:var(--space-8);color:var(--text-muted);">
+              <p>暂无关系数据</p>
+            </div>
+          </td></tr>
         {% endif %}
         </tbody>
       </table>
     </div>
 
-    <h3 style="margin-top:20px;">新增关系</h3>
-    <div class="table-scroll">
-      <table class="data-table" style="font-size:13px;">
+    <h3 style="margin-top:var(--space-5);">新增关系</h3>
+    <div class="table-wrap">
+      <table>
         <tr>
-          <td><input type="text" name="new_from" placeholder="角色A" style="width:70px;"></td>
-          <td><input type="text" name="new_to" placeholder="角色B" style="width:70px;"></td>
+          <td><input type="text" name="new_from" class="form-input" placeholder="角色A" style="width:70px;"></td>
+          <td><input type="text" name="new_to" class="form-input" placeholder="角色B" style="width:70px;"></td>
           {% for dim, _ in dim_labels %}
-          <td><input type="number" name="new_{{ dim }}" value="0" min="-100" max="110" style="width:60px;text-align:center;"></td>
+          <td><input type="number" name="new_{{ dim }}" value="0" min="-100" max="110" class="form-input" style="width:60px;text-align:center;"></td>
           {% endfor %}
-          <td><textarea name="new_notes" rows="2" style="width:140px;" placeholder="备注"></textarea></td>
+          <td><textarea name="new_notes" rows="2" class="form-input" style="width:140px;" placeholder="备注"></textarea></td>
           <td></td>
         </tr>
       </table>
     </div>
 
-    <div class="btn-group" style="margin-top:16px;">
-      <button type="submit" class="btn btn-primary">💾 保存全部</button>
-      <span class="text-muted" style="font-size:12px;">（勾选"删"的行将被移除）</span>
+    <div style="display:flex;gap:var(--space-3);align-items:center;margin-top:var(--space-4);">
+      <button type="submit" class="btn btn-primary">
+        <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+        保存全部
+      </button>
+      <span class="text-muted" style="font-size:var(--text-xs);">（勾选"删除"的行将被移除）</span>
     </div>
   </form>
 </div>
 
 <div class="card">
-  <h3 style="margin-bottom:12px;">维度说明</h3>
-  <div class="stats-row" style="margin-bottom:12px;">
+  <div class="card-header"><h2>维度说明</h2></div>
+  <div class="stats-grid" style="margin-bottom:var(--space-3);">
     {% for dim, label in dim_labels %}
-    <div class="stat-item" style="min-width:100px;">
+    <div class="stat-item">
       <div class="stat-label">{{ label }}</div>
-      <div class="stat-value" style="font-size:14px;">
-        {% if dim == 'affection' %}❤️{% elif dim == 'trust' %}🤝{% elif dim == 'fear' %}😨
-        {% elif dim == 'dependence' %}🔗{% elif dim == 'suspicion' %}🤔{% elif dim == 'hostility' %}⚔{% endif %}
+      <div class="stat-value" style="font-size:var(--text-sm);color:var(--text-muted);">
+        {{ dim }}
       </div>
     </div>
     {% endfor %}
   </div>
-  <p class="text-muted" style="font-size:12px;">
+  <p class="text-muted" style="font-size:var(--text-xs);">
     <strong>110 = 锁死极高</strong>（自动分析不得降低）&nbsp;&nbsp;|&nbsp;&nbsp;
     <strong>-100 = 锁死极低</strong>（自动分析不得提高）&nbsp;&nbsp;|&nbsp;&nbsp;
     <strong>0-100 = 普通可变范围</strong>

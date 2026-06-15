@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}编辑世界 - {{ name }}{% endblock %}
 {% block content %}
-<h1 class="page-title">🌍 编辑世界: {{ name }}</h1>
+<h1 class="page-title">编辑世界: {{ name }}</h1>
 <div class="mode-bar">
   <span class="text-muted">数据源: {{ file_path }}{% if source == 'json' %} (旧 JSON — 保存后将转为 YAML){% endif %}</span>
   <span>
-    <a href="{{ url_for('worlds.preview_prompt', name=name) }}">📋 预览 Prompt</a>
+    <a href="{{ url_for('worlds.preview_prompt', name=name) }}">预览 Prompt</a>
   </span>
 </div>
 
@@ -43,22 +43,22 @@
     </div>
 
     <div class="btn-group">
-      <button type="submit" class="btn btn-primary" data-confirm="确认保存？">💾 保存</button>
+      <button type="submit" class="btn btn-primary" data-confirm="确认保存？">保存</button>
       <a href="{{ url_for('worlds.list_worlds') }}" class="btn btn-ghost">取消</a>
     </div>
   </div>
 </form>
 
 <div class="danger-zone">
-  <h3>⚠ 危险操作</h3>
+  <h3>危险操作</h3>
   <p class="text-muted" style="margin-bottom:12px;">删除世界会同时删除对应的记忆、关系和时间数据。</p>
   <form method="post" action="{{ url_for('worlds.delete_world', name=name) }}" style="display:inline">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn btn-danger" data-confirm="确认删除世界 {{ name }}？此操作不可撤销！">🗑 删除此世界</button>
+    <button type="submit" class="btn btn-danger" data-confirm="确认删除世界 {{ name }}？此操作不可撤销！">删除此世界</button>
   </form>
   <form method="post" action="{{ url_for('worlds.copy_world', name=name) }}" style="display:inline;margin-left:8px;">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn btn-ghost">📋 复制此世界</button>
+    <button type="submit" class="btn btn-ghost">复制此世界</button>
   </form>
 </div>
 {% endblock %}

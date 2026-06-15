@@ -3,54 +3,86 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>登录 — AI 角色扮演导演台</title>
+<title>登录 — 导演台</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 <style>
-  /* 登录页不需要侧栏和顶栏 */
-  .login-input-group {
-    position: relative;
-    margin-bottom: 16px;
+  .login-page {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; background: var(--bg);
   }
-  .login-input-group .icon {
-    position: absolute;
-    left: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 16px;
-    opacity: .5;
-    pointer-events: none;
+  .login-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-10);
+    width: 100%; max-width: 380px;
+    box-shadow: var(--shadow);
+  }
+  .login-box h1 {
+    font-size: var(--text-2xl); font-weight: 700;
+    color: var(--text-primary); text-align: center;
+    margin-bottom: var(--space-1);
+    display: flex; align-items: center; justify-content: center;
+    gap: var(--space-2);
+  }
+  .login-box h1 .login-brand-icon {
+    width: 22px; height: 22px; color: var(--accent);
+  }
+  .login-subtitle {
+    text-align: center; color: var(--text-muted);
+    font-size: var(--text-sm); margin-bottom: var(--space-6);
+  }
+  .login-input-group {
+    position: relative; margin-bottom: var(--space-4);
+  }
+  .login-input-group .input-icon {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; color: var(--text-muted); pointer-events: none;
   }
   .login-input-group input {
-    padding-left: 42px;
+    padding-left: 38px;
+  }
+  .login-box .btn {
+    width: 100%; justify-content: center; padding: var(--space-3);
+    font-size: var(--text-base);
   }
 </style>
 </head>
 <body>
 <div class="login-page">
   <div class="login-box">
-    <h1>🎬 导演台</h1>
-    <p class="login-subtitle">AI 角色扮演剧情管理中心</p>
+    <h1>
+      <svg class="login-brand-icon" aria-hidden="true">
+        <use href="{{ url_for('static', filename='icons/icons.svg') }}#film"/>
+      </svg>
+      导演台
+    </h1>
+    <p class="login-subtitle">角色扮演剧情管理中心</p>
 
     {% if error %}
-    <div class="flash-msg flash-error show" style="margin-bottom:16px;">{{ error }}</div>
+    <div class="flash-msg flash-error" style="margin-bottom:var(--space-4);">{{ error }}</div>
     {% endif %}
 
     {% if cooldown %}
-    <div class="flash-msg flash-warning show" style="margin-bottom:16px;">
+    <div class="flash-msg flash-error" style="margin-bottom:var(--space-4);">
       登录失败次数过多，请等待 {{ cooldown }} 分钟后再试。
     </div>
     {% else %}
     <form method="post" action="{{ url_for('auth.login') }}">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <div class="login-input-group">
-        <span class="icon">👤</span>
-        <input type="text" name="username" placeholder="用户名" value="admin" autocomplete="username" required autofocus>
+        <svg class="input-icon" aria-hidden="true">
+          <use href="{{ url_for('static', filename='icons/icons.svg') }}#users"/>
+        </svg>
+        <input type="text" name="username" class="form-input" placeholder="用户名" value="admin" autocomplete="username" required autofocus>
       </div>
       <div class="login-input-group">
-        <span class="icon">🔑</span>
-        <input type="password" name="password" placeholder="密码" autocomplete="current-password" required>
+        <svg class="input-icon" aria-hidden="true">
+          <use href="{{ url_for('static', filename='icons/icons.svg') }}#lock"/>
+        </svg>
+        <input type="password" name="password" class="form-input" placeholder="密码" autocomplete="current-password" required>
       </div>
-      <button type="submit" class="btn btn-primary">登 录</button>
+      <button type="submit" class="btn btn-primary">登录</button>
     </form>
     {% endif %}
   </div>

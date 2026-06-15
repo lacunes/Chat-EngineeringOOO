@@ -1,16 +1,14 @@
 {% extends "base.html" %}
-{% block title %}仪表盘{% endblock %}
+{% block title %}概览{% endblock %}
 
 {% block content %}
-<h1 class="page-title">📊 仪表盘</h1>
-<p class="page-subtitle">当前世界运行状态概览</p>
+<h1 class="page-title">概览</h1>
+<p class="page-subtitle">当前世界运行状态</p>
 
 <!-- 运行状态 -->
 <div class="card">
-  <div class="card-header">
-    <h2>运行状态</h2>
-  </div>
-  <div class="stats-row">
+  <div class="card-header"><h2>运行状态</h2></div>
+  <div class="stats-grid">
     <div class="stat-item">
       <div class="stat-label">当前世界</div>
       <div class="stat-value">{{ world_name }}</div>
@@ -20,17 +18,17 @@
       <div class="stat-value">{{ router_status.get('current_model', '—') }}</div>
     </div>
     <div class="stat-item">
-      <div class="stat-label">当前 Provider</div>
+      <div class="stat-label">Provider</div>
       <div class="stat-value">{{ router_status.get('current_provider', '—') }}</div>
     </div>
     <div class="stat-item">
       <div class="stat-label">路由模式</div>
-      <div class="stat-value">{{ '🔧 手动' if router_status.get('provider_mode') == 'manual' else '🔄 自动' }}</div>
+      <div class="stat-value">{{ '手动' if router_status.get('provider_mode') == 'manual' else '自动' }}</div>
     </div>
     {% if router_status.get('last_fallback_reason') %}
     <div class="stat-item">
       <div class="stat-label">最近 Fallback</div>
-      <div class="stat-value" style="font-size:0.8rem;color:#f59e0b;">{{ router_status.last_fallback_reason[:60] }}</div>
+      <div class="stat-value" style="font-size:var(--text-sm);color:var(--warning);">{{ router_status.last_fallback_reason[:60] }}</div>
     </div>
     {% endif %}
     <div class="stat-item">
@@ -46,10 +44,8 @@
 
 <!-- 记忆概览 -->
 <div class="card">
-  <div class="card-header">
-    <h2>记忆概览</h2>
-  </div>
-  <div class="stats-row">
+  <div class="card-header"><h2>记忆概览</h2></div>
+  <div class="stats-grid">
     <div class="stat-item">
       <div class="stat-label">短期记忆</div>
       <div class="stat-value">{{ memory_count }} 条</div>
@@ -69,119 +65,118 @@
   </div>
 </div>
 
-<!-- 记忆健康状态 -->
+<!-- 记忆健康 -->
 {% if memory_status %}
 <div class="card">
-  <div class="card-header">
-    <h2>🩺 记忆健康状态</h2>
-  </div>
+  <div class="card-header"><h2>记忆健康</h2></div>
 
-  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
-    <div style="flex:1;min-width:140px;">
+  <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;margin-bottom:var(--space-4);">
+    <div class="stat-item" style="flex:1;min-width:140px;">
       <div class="stat-label">上次保存</div>
-      <div class="stat-value" style="font-size:13px;{% if memory_status.last_save_ok %}color:#10b981;{% else %}color:#ef4444;{% endif %}">
+      <div class="stat-value" style="font-size:var(--text-sm);{% if memory_status.last_save_ok %}color:var(--success){% else %}color:var(--error){% endif %}">
         {{ memory_status.last_save_time }}
-        {{ '✅' if memory_status.last_save_ok else '❌ 失败' }}
+        {% if memory_status.last_save_ok %}
+        <span class="badge badge-success" style="margin-left:var(--space-2);">正常</span>
+        {% else %}
+        <span class="badge badge-error" style="margin-left:var(--space-2);">失败</span>
+        {% endif %}
       </div>
     </div>
     {% if memory_status.was_recovered %}
-    <div style="flex:1;min-width:140px;">
-      <div class="stat-label">⚠️ 恢复状态</div>
-      <div class="stat-value" style="color:#f59e0b;">曾从旧路径迁移/恢复</div>
+    <div class="stat-item" style="flex:1;min-width:140px;">
+      <div class="stat-label">恢复状态</div>
+      <div class="stat-value" style="font-size:var(--text-sm);color:var(--warning);">曾从旧路径迁移</div>
     </div>
     {% endif %}
   </div>
 
-  <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
-    <thead>
-      <tr style="color:#9ca3af;text-align:left;">
-        <th>文件</th>
-        <th>条目数</th>
-        <th>大小</th>
-        <th>最后修改</th>
-        <th>状态</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for key, label in [('chat', '💬 短期对话'), ('long', '🧠 长期记忆'), ('summary', '📋 压缩摘要')] %}
-      {% set f = memory_status[key] %}
-      <tr>
-        <td>{{ label }}</td>
-        <td>{{ f.count }} 条</td>
-        <td>{{ (f.size / 1024) | round(1) }} KB</td>
-        <td>{{ f.mtime }}</td>
-        <td>
-          {% if not f.ok and not f.get('corrupted') %}
-          <span style="color:#6b7280;">⚫ 未创建</span>
-          {% elif f.get('corrupted') %}
-          <span style="color:#ef4444;">💥 损坏</span>
-          {% elif f.count == 0 %}
-          <span style="color:#9ca3af;">⚪ 空</span>
-          {% else %}
-          <span style="color:#10b981;">✅ 正常</span>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>文件</th>
+          <th>条目数</th>
+          <th>大小</th>
+          <th>最后修改</th>
+          <th>状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for key, label in [('chat', '短期对话'), ('long', '长期记忆'), ('summary', '压缩摘要')] %}
+        {% set f = memory_status[key] %}
+        <tr>
+          <td>{{ label }}</td>
+          <td>{{ f.count }} 条</td>
+          <td>{{ (f.size / 1024) | round(1) }} KB</td>
+          <td>{{ f.mtime }}</td>
+          <td>
+            {% if not f.ok and not f.get('corrupted') %}
+            <span class="badge badge-default">未创建</span>
+            {% elif f.get('corrupted') %}
+            <span class="badge badge-error">损坏</span>
+            {% elif f.count == 0 %}
+            <span class="badge badge-default">空</span>
+            {% else %}
+            <span class="badge badge-success">正常</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 
 <!-- NPC 系统 -->
 <div class="card">
-  <div class="card-header">
-    <h2>NPC 系统</h2>
-  </div>
-  <pre style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text-secondary);">{{ npc_status }}</pre>
+  <div class="card-header"><h2>NPC 系统</h2></div>
+  <pre style="font-size:var(--text-sm);line-height:var(--lh-relaxed);white-space:pre-wrap;color:var(--text-secondary);">{{ npc_status }}</pre>
 </div>
 
 <!-- 最近错误 -->
 {% if error_info %}
-<div class="card" style="border-color:{% if error_info.is_network %}rgba(243,156,18,.4){% else %}rgba(231,76,60,.4){% endif %};">
+<div class="card" style="border-color:{% if error_info.is_network %}var(--warning){% else %}var(--error){% endif %};">
   <div class="card-header">
-    <h2 style="color:{% if error_info.is_network %}var(--accent-orange){% else %}var(--accent-red){% endif %};">
-      {% if error_info.is_network %}⚠️{% else %}❌{% endif %}
+    <h2 style="color:{% if error_info.is_network %}var(--warning){% else %}var(--error){% endif %};">
       {% if error_info.is_network %}网络异常（已自动重试）{% else %}最近异常{% endif %}
     </h2>
   </div>
 
-  <div style="margin-bottom:12px;">
+  <div style="margin-bottom:var(--space-3);">
     {% if error_info.exception_type %}
-    <div class="stat-item" style="margin-bottom:8px;">
+    <div class="stat-item" style="margin-bottom:var(--space-2);">
       <div class="stat-label">异常类型</div>
-      <div class="stat-value" style="font-size:15px;color:{% if error_info.is_network %}var(--accent-orange){% else %}var(--accent-red){% endif %};">{{ error_info.exception_type }}</div>
+      <div class="stat-value" style="font-size:var(--text-base);color:{% if error_info.is_network %}var(--warning){% else %}var(--error){% endif %};">{{ error_info.exception_type }}</div>
     </div>
     {% endif %}
-
     {% if error_info.exception_message %}
-    <div class="stat-item" style="margin-bottom:8px;">
+    <div class="stat-item" style="margin-bottom:var(--space-2);">
       <div class="stat-label">简要原因</div>
-      <div class="stat-value" style="font-size:14px;">{{ error_info.exception_message }}</div>
+      <div class="stat-value" style="font-size:var(--text-sm);">{{ error_info.exception_message }}</div>
     </div>
     {% endif %}
-
     {% if error_info.location %}
-    <div class="stat-item" style="margin-bottom:8px;">
+    <div class="stat-item" style="margin-bottom:var(--space-2);">
       <div class="stat-label">发生位置</div>
-      <div class="stat-value" style="font-size:13px;font-family:var(--font-mono);">{{ error_info.location }}</div>
+      <div class="stat-value" style="font-size:var(--text-sm);font-family:var(--font-mono);">{{ error_info.location }}</div>
     </div>
     {% endif %}
   </div>
 
-  <button type="button" class="btn btn-ghost btn-sm" onclick="toggleTraceback()">📋 查看完整 traceback</button>
+  <button type="button" class="btn btn-ghost btn-sm" onclick="toggleTraceback()">查看完整 traceback</button>
 
-  <pre id="full-traceback" style="display:none;margin-top:12px;white-space:pre-wrap;font-family:var(--font-mono);font-size:12px;line-height:1.5;color:var(--text-muted);max-height:400px;overflow-y:auto;background:var(--bg-sidebar);border-radius:6px;padding:12px;">{{ error_info.full_traceback }}</pre>
+  <pre id="full-traceback" class="hidden" style="margin-top:var(--space-3);white-space:pre-wrap;font-family:var(--font-mono);font-size:var(--text-xs);line-height:1.5;color:var(--text-muted);max-height:400px;overflow-y:auto;background:var(--surface-secondary);border-radius:var(--radius-sm);padding:var(--space-3);">{{ error_info.full_traceback }}</pre>
 </div>
 {% endif %}
 
 <!-- 重置 -->
 <div class="danger-zone">
-  <h3>⚠ 重置当前世界</h3>
-  <p class="text-muted" style="margin-bottom:12px;">清空当前世界的所有记忆、关系网络和时间状态。此操作不可撤销。</p>
+  <h3>重置当前世界</h3>
+  <p class="text-muted" style="margin-bottom:var(--space-3);">清空当前世界的所有记忆、关系网络和时间状态。此操作不可撤销。</p>
   <form method="post" action="{{ url_for('dashboard.reset_world') }}" style="display:inline">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn btn-danger" data-confirm="确认清空当前世界所有记忆？此操作不可撤销！">🔄 重置当前世界记忆</button>
+    <button type="submit" class="btn btn-danger" data-confirm="确认清空当前世界所有记忆？此操作不可撤销！">重置当前世界记忆</button>
   </form>
 </div>
 {% endblock %}
@@ -190,11 +185,7 @@
 <script>
 function toggleTraceback() {
   var el = document.getElementById('full-traceback');
-  if (el.style.display === 'none') {
-    el.style.display = 'block';
-  } else {
-    el.style.display = 'none';
-  }
+  el.classList.toggle('hidden');
 }
 </script>
 {% endblock %}
