@@ -75,7 +75,9 @@ class RoleplayBot:
 
         # 先移除旧监听器（世界切换时重新注册）
         for name in ("_on_memory_maintenance", "_on_time_update"):
-            self.event_bus.off("after_assistant_reply", getattr(self, name, None))
+            old = getattr(self, name, None)
+            if old is not None:
+                self.event_bus.off("after_assistant_reply", old)
 
         @self.event_bus.on("after_assistant_reply", priority=10)
         def _on_memory_maintenance(**kwargs):
@@ -86,6 +88,10 @@ class RoleplayBot:
         def _on_time_update(**kwargs):
             """回复后触发：更新时间计数器。"""
             self.time_manager.on_assistant_reply(self.memory.message_count)
+
+        # 保存函数引用到实例，供下次 world switch 时 off() 使用
+        self._on_memory_maintenance = _on_memory_maintenance  # type: ignore[assignment]
+        self._on_time_update = _on_time_update  # type: ignore[assignment]
 
     def _ensure_world_current(self) -> None:
         """检查世界是否被 Web 面板切换，是则自动重新初始化所有管理器。"""
