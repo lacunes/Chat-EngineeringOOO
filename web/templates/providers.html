@@ -34,7 +34,7 @@
     <span class="text-muted" style="font-size:var(--text-sm);">当前优先: <strong>{{ manual_provider }}</strong></span>
     {% endif %}
 
-    <button class="btn btn-primary" id="btn-add-provider" style="margin-left:auto;">
+    <button type="button" class="btn btn-primary" id="btn-add-provider" style="margin-left:auto;">
       <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#plus"/></svg>
       添加 Provider
     </button>
@@ -42,7 +42,12 @@
 </div>
 
 <!-- Provider 编辑/添加表单（隐藏） -->
-<div id="provider-editor" style="display:none;">
+<div id="provider-editor"
+     data-add-url="{{ url_for('providers.add_provider') }}"
+     data-edit-url="{{ url_for('providers.edit_provider') }}"
+     data-test-url="{{ url_for('providers.test_provider') }}"
+     data-fetch-models-url="{{ url_for('providers.fetch_models') }}"
+     style="display:none;">
   <div class="card">
     <div class="card-header"><h2 id="editor-title">编辑 Provider</h2></div>
     <form id="editor-form" method="post" action="">
@@ -60,7 +65,7 @@
             <input type="text" name="model" id="editor-model" class="form-input" placeholder="如: DeepSeek-V3[Free]">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-fetch-models" title="从 API 获取模型列表">获取</button>
           </div>
-          <select id="editor-model-select" class="form-select" style="display:none;margin-top:var(--space-1);" onchange="document.getElementById('editor-model').value=this.value;">
+          <select id="editor-model-select" class="form-select" style="display:none;margin-top:var(--space-1);">
             <option value="">— 选择模型 —</option>
           </select>
         </div>
@@ -172,8 +177,8 @@
         <button type="submit" class="btn btn-sm btn-secondary">清除状态</button>
       </form>
 
-      <button class="btn btn-sm btn-secondary test-btn" data-provider="{{ p.name }}">测试连接</button>
-      <button class="btn btn-sm btn-secondary edit-btn" data-provider="{{ p.name }}">编辑</button>
+      <button type="button" class="btn btn-sm btn-secondary test-btn" data-provider="{{ p.name }}">测试连接</button>
+      <button type="button" class="btn btn-sm btn-secondary edit-btn" data-provider="{{ p.name }}">编辑</button>
 
       <form method="post" action="{{ url_for('providers.delete_provider') }}" style="display:inline;" data-confirm="确认删除 {{ p.name }}？此操作不可恢复！">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -232,7 +237,7 @@
   </div>
 
   <!-- 测试结果 -->
-  <div class="test-result" id="test-{{ p.name }}" style="display:none;margin-top:var(--space-2);padding:var(--space-2);background:var(--surface-secondary);border-radius:var(--radius-sm);"></div>
+  <div class="test-result" data-provider-result="{{ p.name }}" style="display:none;margin-top:var(--space-2);padding:var(--space-2);background:var(--surface-secondary);border-radius:var(--radius-sm);"></div>
 </div>
 {% endfor %}
 
@@ -315,211 +320,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-// ── 测试连接按钮 ──
-document.querySelectorAll('.test-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var name = btn.getAttribute('data-provider');
-    var resultDiv = document.getElementById('test-' + name);
-    resultDiv.style.display = 'block';
-    resultDiv.innerHTML = '<span style="color:var(--warning);">测试中…</span>';
-    btn.disabled = true;
-
-    fetch('{{ url_for("providers.test_provider") }}', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-      },
-      body: '_csrf_token=' + encodeURIComponent(csrfToken) + '&name=' + encodeURIComponent(name)
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.ok) {
-        resultDiv.innerHTML = '<span style="color:var(--success);">成功！回复: "' + escapeHtml(data.reply) + '" | 延迟: ' + data.latency_ms + 'ms | 模型: ' + escapeHtml(data.model) + '</span>';
-      } else {
-        resultDiv.innerHTML = '<span style="color:var(--error);">失败: ' + escapeHtml(data.error) + ' (延迟: ' + data.latency_ms + 'ms)</span>';
-      }
-    })
-    .catch(function(err) {
-      resultDiv.innerHTML = '<span style="color:var(--error);">请求失败: ' + escapeHtml(String(err)) + '</span>';
-    })
-    .finally(function() {
-      btn.disabled = false;
-    });
-  });
-});
-
-// ── 编辑/添加 Provider 表单 ──
-var editorDiv = document.getElementById('provider-editor');
-var editorForm = document.getElementById('editor-form');
-var editorTitle = document.getElementById('editor-title');
-var editorIsAdd = document.getElementById('editor-is-add');
-var btnAdd = document.getElementById('btn-add-provider');
-var btnCancel = document.getElementById('btn-cancel-edit');
-var btnFetch = document.getElementById('btn-fetch-models');
-var fetchStatus = document.getElementById('editor-fetch-status');
-var modelSelect = document.getElementById('editor-model-select');
-var csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-
-var providerData = {};
-{% for p in providers %}
-providerData['{{ p.name }}'] = {
-  model: {{ p.model | tojson }},
-  base_url: {{ p.base_url | tojson }},
-  api_key_env: {{ p.api_key_env | tojson }},
-  priority: {{ p.priority }},
-  enabled: {{ 'true' if p.enabled else 'false' }},
-  task_types: {{ p.task_types | tojson }},
-  timeout_chat_seconds: {{ p.timeout_chat_seconds }},
-  timeout_background_seconds: {{ p.timeout_background_seconds }},
-  max_retries: {{ p.max_retries }},
-  cooldown_seconds: {{ p.cooldown_seconds }},
-  max_consecutive_failures: {{ p.max_consecutive_failures }},
-  disable_on_quota_exhausted: {{ 'true' if p.disable_on_quota_exhausted else 'false' }},
-  thinking_enabled: {{ 'true' if p.thinking_enabled else 'false' }}
-};
-{% endfor %}
-
-function fillForm(data) {
-  document.getElementById('editor-model').value = data.model || '';
-  document.getElementById('editor-base-url').value = data.base_url || '';
-  document.getElementById('editor-api-key-env').value = data.api_key_env || '';
-  document.getElementById('editor-priority').value = data.priority || 99;
-  document.getElementById('editor-timeout-chat').value = data.timeout_chat_seconds || 60;
-  document.getElementById('editor-timeout-bg').value = data.timeout_background_seconds || 30;
-  document.getElementById('editor-max-retries').value = data.max_retries || 1;
-  document.getElementById('editor-cooldown').value = data.cooldown_seconds || 300;
-  document.getElementById('editor-max-fail').value = data.max_consecutive_failures || 3;
-  var enabledCb = editorForm.querySelector('input[name="enabled"]');
-  if (enabledCb) enabledCb.checked = data.enabled !== false;
-  var quotaCb = editorForm.querySelector('input[name="disable_on_quota_exhausted"]');
-  if (quotaCb) quotaCb.checked = data.disable_on_quota_exhausted !== false;
-  var thinkCb = editorForm.querySelector('input[name="thinking_enabled"]');
-  if (thinkCb) thinkCb.checked = data.thinking_enabled === true;
-  var types = data.task_types || ['chat'];
-  editorForm.querySelectorAll('input[name="task_types"]').forEach(function(cb) {
-    cb.checked = types.indexOf(cb.value) >= 0;
-  });
-}
-
-function clearForm() {
-  document.getElementById('editor-name').value = '';
-  document.getElementById('editor-name').readOnly = false;
-  document.getElementById('editor-model').value = '';
-  document.getElementById('editor-base-url').value = '';
-  document.getElementById('editor-api-key-env').value = '';
-  document.getElementById('editor-priority').value = 99;
-  document.getElementById('editor-timeout-chat').value = 60;
-  document.getElementById('editor-timeout-bg').value = 30;
-  document.getElementById('editor-max-retries').value = 1;
-  document.getElementById('editor-cooldown').value = 300;
-  document.getElementById('editor-max-fail').value = 3;
-  editorForm.querySelector('input[name="enabled"]').checked = true;
-  editorForm.querySelector('input[name="disable_on_quota_exhausted"]').checked = true;
-  editorForm.querySelector('input[name="thinking_enabled"]').checked = false;
-  editorForm.querySelectorAll('input[name="task_types"]').forEach(function(cb) {
-    cb.checked = cb.value === 'chat';
-  });
-  modelSelect.style.display = 'none';
-  modelSelect.innerHTML = '<option value="">— 选择模型 —</option>';
-  fetchStatus.textContent = '';
-}
-
-function showEditor(title, actionUrl, isAdd) {
-  editorTitle.textContent = title;
-  editorForm.action = actionUrl;
-  editorIsAdd.value = isAdd ? '1' : '0';
-  editorDiv.style.display = 'block';
-  editorDiv.scrollIntoView({behavior:'smooth'});
-}
-
-function hideEditor() {
-  editorDiv.style.display = 'none';
-}
-
-btnAdd.addEventListener('click', function() {
-  clearForm();
-  showEditor('添加 Provider', '{{ url_for("providers.add_provider") }}', true);
-});
-
-btnCancel.addEventListener('click', hideEditor);
-
-document.querySelectorAll('.edit-btn').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var name = btn.getAttribute('data-provider');
-    var data = providerData[name] || {};
-    clearForm();
-    document.getElementById('editor-name').value = name;
-    document.getElementById('editor-name').readOnly = true;
-    fillForm(data);
-    showEditor('编辑 Provider: ' + name, '{{ url_for("providers.edit_provider") }}', false);
-  });
-});
-
-btnFetch.addEventListener('click', function() {
-  var baseUrl = document.getElementById('editor-base-url').value.trim();
-  if (!baseUrl) {
-    alert('请先填写 API 地址 (base_url)');
-    return;
-  }
-  var apiKeyEnv = document.getElementById('editor-api-key-env').value.trim();
-  var apiKey = prompt('请输入 API Key（从 .env 中对应 ' + (apiKeyEnv || 'API_KEY') + ' 的值）：\n\n注意：此 Key 仅用于本次获取模型列表，不会保存到服务器。', '');
-  if (!apiKey) return;
-
-  btnFetch.disabled = true;
-  fetchStatus.textContent = '获取中…';
-  modelSelect.style.display = 'none';
-
-  var formData = new URLSearchParams();
-  formData.append('_csrf_token', csrfToken);
-  formData.append('base_url', baseUrl);
-  formData.append('api_key', apiKey);
-
-  fetch('{{ url_for("providers.fetch_models") }}', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRF-Token': csrfToken
-    },
-    body: formData.toString()
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if (data.ok && data.models && data.models.length > 0) {
-      modelSelect.innerHTML = '<option value="">— 选择模型 —</option>';
-      data.models.forEach(function(m) {
-        var opt = document.createElement('option');
-        opt.value = m;
-        opt.textContent = m;
-        modelSelect.appendChild(opt);
-      });
-      modelSelect.style.display = 'block';
-      fetchStatus.innerHTML = '<span style="color:var(--success);">获取到 ' + data.models.length + ' 个模型</span>';
-    } else {
-      fetchStatus.innerHTML = '<span style="color:var(--error);">' + escapeHtml(data.error || '未返回模型列表') + '</span>';
-    }
-  })
-  .catch(function(err) {
-    fetchStatus.innerHTML = '<span style="color:var(--error);">请求失败: ' + escapeHtml(String(err)) + '</span>';
-  })
-  .finally(function() {
-    btnFetch.disabled = false;
-  });
-});
-
-document.querySelectorAll('form[data-confirm]').forEach(function(form) {
-  form.addEventListener('submit', function(e) {
-    if (!confirm(form.getAttribute('data-confirm'))) {
-      e.preventDefault();
-    }
-  });
-});
-
-function escapeHtml(text) {
-  var div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-</script>
+<script id="provider-data" type="application/json">{{ providers | tojson }}</script>
+<script src="{{ url_for('static', filename='js/providers.js') }}" defer></script>
 {% endblock %}

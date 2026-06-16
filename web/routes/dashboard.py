@@ -4,7 +4,7 @@ import logging
 import re
 import time
 
-from flask import Blueprint, render_template
+from flask import Blueprint, jsonify, render_template, session
 
 from config import settings
 from web.app import _ctx, audit_log, _format_uptime, _flash_redirect
@@ -93,6 +93,33 @@ def context_debug():
     if not sel:
         return jsonify({"status": "no_data", "message": "暂无上下文选择记录。发送一条聊天消息后刷新此页面。"})
     return jsonify({"status": "ok", "selection": sel})
+
+
+@dashboard_bp.route("/health")
+def health():
+    """轻量健康检查。不请求 Telegram 或模型 API。"""
+    ctx = _ctx()
+    now = time.time()
+    minimal = {
+        "ok": True,
+        "process_alive": True,
+        "web_alive": True,
+        "uptime_seconds": int(now - ctx.start_time),
+    }
+    if not session.get("logged_in"):
+        return jsonify(minimal)
+
+    router_status = ctx.client.router.get_dashboard_status() if ctx.client.router else {}
+    roleplay_bot = ctx.roleplay_bot
+    return jsonify({
+        **minimal,
+        "telegram_polling_started": bool(getattr(ctx, "telegram_polling_started", False)),
+        "active_world": getattr(ctx.world, "WORLD_NAME", None),
+        "current_provider": router_status.get("current_provider"),
+        "last_update_at": getattr(roleplay_bot, "last_update_at", None),
+        "last_reply_at": getattr(roleplay_bot, "last_reply_at", None),
+        "consecutive_telegram_network_errors": getattr(roleplay_bot, "consecutive_telegram_network_errors", 0),
+    })
 
 
 # ═══════════════════════════════════════════════════════════

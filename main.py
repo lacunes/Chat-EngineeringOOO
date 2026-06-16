@@ -6,9 +6,10 @@ import threading
 import time
 import traceback
 
-import requests
-from telegram import Update
+from telegram import BotCommand, Update
+from telegram.error import TelegramError
 from telegram.ext import (
+    Application,
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
@@ -29,6 +30,20 @@ from config import settings
 from web.app import AppContext, create_app
 
 
+class SensitiveDataFilter(logging.Filter):
+    """在 handler 层统一过滤敏感信息，覆盖第三方 logger 输出。"""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from bot.utils import filter_sensitive
+
+        try:
+            record.msg = filter_sensitive(record.getMessage())
+            record.args = ()
+        except Exception:
+            pass
+        return True
+
+
 def setup_logging() -> None:
     """配置分层日志系统。
 
@@ -43,46 +58,61 @@ def setup_logging() -> None:
     """
     settings.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 根 logger：app.log + 终端
     root = logging.getLogger()
+    if getattr(root, "_roleplay_logging_configured", False):
+        return
+
+    # 根 logger：app.log + 终端
     root.setLevel(logging.INFO)
 
     fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    sensitive_filter = SensitiveDataFilter()
 
     # 主日志文件（INFO+）
     app_handler = logging.FileHandler(settings.LOG_FILE, encoding="utf-8")
     app_handler.setLevel(logging.INFO)
     app_handler.setFormatter(fmt)
+    app_handler.addFilter(sensitive_filter)
     root.addHandler(app_handler)
 
     # 错误日志文件（ERROR+）
     err_handler = logging.FileHandler(settings.LOG_ERROR_FILE, encoding="utf-8")
     err_handler.setLevel(logging.ERROR)
     err_handler.setFormatter(fmt)
+    err_handler.addFilter(sensitive_filter)
     root.addHandler(err_handler)
 
     # 终端输出
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(fmt)
+    console.addFilter(sensitive_filter)
     root.addHandler(console)
 
     # ── 专题日志 ──
-    _add_specialty_logger("bot.memory", settings.LOG_MEMORY_FILE, fmt)
-    _add_specialty_logger("bot.relation", settings.LOG_RELATION_FILE, fmt)
-    _add_specialty_logger("bot.story", settings.LOG_STORY_FILE, fmt)
-    _add_specialty_logger("security", settings.LOG_SECURITY_FILE, fmt)
+    _add_specialty_logger("bot.memory", settings.LOG_MEMORY_FILE, fmt, sensitive_filter)
+    _add_specialty_logger("bot.relation", settings.LOG_RELATION_FILE, fmt, sensitive_filter)
+    _add_specialty_logger("bot.story", settings.LOG_STORY_FILE, fmt, sensitive_filter)
+    _add_specialty_logger("security", settings.LOG_SECURITY_FILE, fmt, sensitive_filter)
+
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    root._roleplay_logging_configured = True
 
 
-def _add_specialty_logger(name: str, path, fmt) -> logging.Logger:
+def _add_specialty_logger(name: str, path, fmt, sensitive_filter: logging.Filter) -> logging.Logger:
     """创建写入专属文件的 logger，不传播到根 logger（避免重复输出）。"""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     logger.propagate = False  # 不传播到根 logger，避免重复写 app.log
+    if getattr(logger, "_roleplay_logging_configured", False):
+        return logger
     handler = logging.FileHandler(path, encoding="utf-8")
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(fmt)
+    handler.addFilter(sensitive_filter)
     logger.addHandler(handler)
+    logger._roleplay_logging_configured = True
     return logger
 
 
@@ -173,20 +203,20 @@ COMMANDS = {
 }
 
 
-def set_bot_commands() -> None:
-    # 注册 Telegram Bot 菜单，让手机端输入命令更方便。
-    url = f"https://api.telegram.org/bot{settings.BOT_TOKEN}/setMyCommands"
-    payload = {
-        "commands": [
-            {"command": cmd, "description": desc}
-            for cmd, desc in COMMANDS.items()
-        ]
-    }
+async def set_bot_commands(application: Application) -> bool:
+    """注册 Telegram Bot 菜单。失败只记录 warning，不阻断主流程。"""
+    commands = [BotCommand(command=cmd, description=desc) for cmd, desc in COMMANDS.items()]
     try:
-        requests.post(url, json=payload, timeout=10)
+        await application.bot.set_my_commands(commands, read_timeout=10, write_timeout=10, connect_timeout=10)
         logging.getLogger(__name__).info("Telegram command menu updated")
+        return True
+    except TelegramError as exc:
+        logging.getLogger(__name__).warning("Failed to set command menu: %s", exc)
+    except OSError as exc:
+        logging.getLogger(__name__).warning("Failed to set command menu: %s", exc)
     except Exception as exc:
         logging.getLogger(__name__).warning("Failed to set command menu: %s", exc)
+    return False
 
 
 # ── 全局错误处理器 ──────────────────────────────────
@@ -295,10 +325,17 @@ def main() -> None:
     event_bus = EventBus()
 
     roleplay_bot = RoleplayBot(world_manager, client, event_bus)
+    roleplay_bot.last_update_at = None
+    roleplay_bot.last_reply_at = None
+    roleplay_bot.consecutive_telegram_network_errors = 0
 
-    set_bot_commands()
+    ctx = AppContext(world_manager, roleplay_bot, client, time.time())
 
-    app = ApplicationBuilder().token(settings.BOT_TOKEN).build()
+    async def _post_init(application: Application) -> None:
+        await set_bot_commands(application)
+        ctx.telegram_polling_started = True
+
+    app = ApplicationBuilder().token(settings.BOT_TOKEN).post_init(_post_init).build()
 
     # ── 设置路由器通知回调 ──
     async def _notify_admin(text: str) -> None:
@@ -337,7 +374,6 @@ def main() -> None:
     # 在不同版本中对事件循环的管理方式不同）。
 
     # ── 启动 Web 管理面板（守护线程）──
-    ctx = AppContext(world_manager, roleplay_bot, client, time.time())
     web_app = create_app(ctx)
     threading.Thread(
         target=lambda: web_app.run(

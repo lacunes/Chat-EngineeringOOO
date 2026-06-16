@@ -309,14 +309,22 @@ def filter_sensitive(text: str) -> str:
     for secret in sorted(secrets, key=len, reverse=True):
         result = result.replace(secret, "***")
 
-    # 4. 过滤 sk- 开头的 key
+    # 4. 过滤 Telegram Bot API URL 和 token 形态
+    result = re.sub(r'/bot\d{8,10}:[a-zA-Z0-9_-]{25,}/', '/bot***/', result)
+    result = re.sub(r'\d{8,10}:[a-zA-Z0-9_-]{25,}', '***:***', result)
+
+    # 5. 过滤 sk- 开头的 key
     result = re.sub(r'sk-[a-zA-Z0-9_-]{8,}', 'sk-***', result)
 
-    # 5. 过滤 Bearer token
+    # 6. 过滤 Authorization / Bearer token
+    result = re.sub(r'Authorization:\s*Bearer\s+[a-zA-Z0-9_\-\.=]+', 'Authorization: Bearer ***', result, flags=re.I)
     result = re.sub(r'Bearer\s+[a-zA-Z0-9_\-\.=]+', 'Bearer ***', result)
 
-    # 6. 过滤 Authorization header 值
-    result = re.sub(r'Authorization[:\s]+[a-zA-Z0-9_\-\.=]+', 'Authorization: ***', result)
+    # 7. 过滤非 Bearer 的 Authorization header 值
+    result = re.sub(r'Authorization[:\s]+(?!Bearer\b)[a-zA-Z0-9_\-\.=]+', 'Authorization: ***', result, flags=re.I)
+
+    # 8. 过滤 Cookie header 值
+    result = re.sub(r'Cookie[:\s]+[^,\r\n;]+(?:;[^,\r\n]+)*', 'Cookie: ***', result, flags=re.I)
 
     return result
 

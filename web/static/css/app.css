@@ -140,6 +140,10 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+body.sidebar-open {
+  overflow: hidden;
+}
+
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-hover); }
 
@@ -334,6 +338,8 @@ code, pre {
   cursor: pointer;
   padding: var(--space-1);
   line-height: 1;
+  position: relative;
+  z-index: 120;
 }
 
 .theme-toggle {
@@ -749,9 +755,13 @@ tr:last-child td { border-bottom: none; }
   inset: 0;
   background: rgba(15,23,42,.4);
   z-index: 90;
+  pointer-events: none;
 }
 
-.modal-overlay.open { display: block; }
+.modal-overlay.open {
+  display: block;
+  pointer-events: auto;
+}
 
 
 /* ── Loading / Skeleton ── */

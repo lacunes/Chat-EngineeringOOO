@@ -1,0 +1,17 @@
+[Unit]
+Description=Chat Engineering Telegram roleplay bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tianhai-bot/Chat-EngineeringOOO
+EnvironmentFile=/opt/tianhai-bot/Chat-EngineeringOOO/.env
+ExecStart=/opt/tianhai-bot/Chat-EngineeringOOO/venv/bin/python main.py
+Restart=always
+RestartSec=5
+User=tianhai-bot
+Group=tianhai-bot
+
+[Install]
+WantedBy=multi-user.target

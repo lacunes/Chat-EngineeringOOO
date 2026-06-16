@@ -23,6 +23,8 @@ Telegram Bot + Web 导演台 + Multi-provider LLM Router + 结构化长期记忆
 * 长回复自动分段
 * NPC主动行为系统
 * **Web 管理面板**（浅色/暗色双主题，SVG图标系统）
+* **严格 CSP Web 交互**（脚本全部本地静态化，无 inline script / inline handler）
+* **轻量健康检查**（`/health`，不触发 Telegram 或模型 API）
 * 关系网络系统（6 维度）
 * 时间流逝系统（用户驱动）
 * 剧情节奏控制
@@ -118,8 +120,13 @@ project/
 │   └── static/
 │       ├── css/app.css         # 设计系统（浅色/暗色双主题）
 │       ├── js/app.js
+│       ├── js/providers.js     # 模型管理页交互
 │       └── icons/icons.svg     # SVG 图标 Sprite（36个Lucide图标）
 │
+├── deploy/
+│   └── chat-engineering.service # systemd unit 示例（通过 .env 注入环境变量）
+├── scripts/
+│   └── health_watch.sh          # 本地健康诊断脚本，不自动杀进程
 ├── data/
 │   ├── worlds/                 # 世界数据（YAML 格式）
 │   ├── sessions/               # 短期记忆（{world}_chat.json）
@@ -240,6 +247,15 @@ Web 面板定位为 **"角色扮演导演台"**。
 | 时间 | `/time` | 时间状态、快速推进、剧情节奏 |
 | 日志 | `/logs` | 实时日志查看 |
 
+## 健康检查
+
+`/health` 用于本地或反代探活，不会请求 Telegram 或任何模型 API。
+
+- 未登录：只返回 `ok`、`process_alive`、`web_alive`、`uptime_seconds`
+- 已登录：额外返回 `telegram_polling_started`、`active_world`、`current_provider`、最近消息时间和连续 Telegram 网络错误计数
+
+`scripts/health_watch.sh` 可在 VPS 上每分钟记录一次本机 Web 健康、`main.py` 进程和 `api.telegram.org` 可达性。它只做诊断，不会自动重启或杀进程。
+
 ---
 
 # ⚙ 环境变量
@@ -278,6 +294,9 @@ Web 面板定位为 **"角色扮演导演台"**。
 * [x] 原子写入 + 自动备份
 * [x] 敏感信息统一过滤
 * [x] 浅色/暗色双主题
+* [x] 严格 CSP 下的 Web 交互
+* [x] 非关键 Telegram 命令菜单初始化
+* [x] `/health` 与 systemd/健康诊断样例
 * [ ] 多角色同时对话
 * [ ] 自动事件系统
 

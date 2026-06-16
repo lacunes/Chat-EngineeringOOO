@@ -32,7 +32,7 @@
             <form method="post" action="{{ url_for('worlds.switch_world') }}" style="display:inline">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="world" value="{{ w.name }}">
-              <button class="btn btn-primary btn-sm">切换</button>
+              <button type="submit" class="btn btn-primary btn-sm">切换</button>
             </form>
             {% endif %}
           </div>

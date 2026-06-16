@@ -1,6 +1,7 @@
 """模型供应商管理路由 — Web 管理面板。"""
 
 import logging
+import os
 
 from flask import Blueprint, render_template, request, redirect, url_for, jsonify
 
@@ -173,22 +174,36 @@ def test_provider():
 @providers_bp.route("/fetch-models", methods=["POST"])
 @login_required
 def fetch_models():
-    """从 base_url + api_key 获取模型列表（/v1/models）。"""
+    """从 base_url + api_key_env 获取模型列表（/v1/models）。
+
+    前端不接收、不回传 API Key 明文；后端只按环境变量名读取本机 .env。
+    """
     router = _get_router()
     if not router:
         return jsonify({"ok": False, "models": [], "error": "LLM Router 未初始化"})
 
     base_url = (request.form.get("base_url") or "").strip()
-    api_key = (request.form.get("api_key") or "").strip()
+    api_key_env = (request.form.get("api_key_env") or "").strip()
+    provider_name = (request.form.get("name") or "").strip()
 
     if not base_url:
         return jsonify({"ok": False, "models": [], "error": "base_url 不能为空"})
+    if not api_key_env and provider_name:
+        provider = next((p for p in router.get_provider_list() if p.get("name") == provider_name), None)
+        api_key_env = (provider or {}).get("api_key_env", "")
+    if not api_key_env:
+        return jsonify({"ok": False, "models": [], "error": "请先填写 api_key_env，并在 .env 中配置对应环境变量"})
+
+    api_key = os.getenv(api_key_env, "").strip()
     if not api_key:
-        return jsonify({"ok": False, "models": [], "error": "API Key 不能为空"})
+        return jsonify({"ok": False, "models": [], "error": f"环境变量 {api_key_env} 未配置或为空"})
 
     from bot.utils import normalize_base_url
     result = router.fetch_models_from_api(normalize_base_url(base_url), api_key)
-    audit_log("模型管理", f"获取模型列表: {base_url[:60]} — {'成功' if result['ok'] else '失败'}")
+    audit_log("模型管理", f"获取模型列表: {base_url[:60]} / {api_key_env} — {'成功' if result['ok'] else '失败'}")
+    if not result.get("ok"):
+        from bot.utils import filter_sensitive
+        result["error"] = filter_sensitive(result.get("error", ""))
     return jsonify(result)
 
 

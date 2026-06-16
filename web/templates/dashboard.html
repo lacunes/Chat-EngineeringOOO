@@ -164,7 +164,7 @@
     {% endif %}
   </div>
 
-  <button type="button" class="btn btn-ghost btn-sm" onclick="toggleTraceback()">查看完整 traceback</button>
+  <button type="button" class="btn btn-ghost btn-sm" data-toggle-traceback="full-traceback">查看完整 traceback</button>
 
   <pre id="full-traceback" class="hidden" style="margin-top:var(--space-3);white-space:pre-wrap;font-family:var(--font-mono);font-size:var(--text-xs);line-height:1.5;color:var(--text-muted);max-height:400px;overflow-y:auto;background:var(--surface-secondary);border-radius:var(--radius-sm);padding:var(--space-3);">{{ error_info.full_traceback }}</pre>
 </div>
@@ -179,13 +179,4 @@
     <button type="submit" class="btn btn-danger" data-confirm="确认清空当前世界所有记忆？此操作不可撤销！">重置当前世界记忆</button>
   </form>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-function toggleTraceback() {
-  var el = document.getElementById('full-traceback');
-  el.classList.toggle('hidden');
-}
-</script>
 {% endblock %}

@@ -307,6 +307,7 @@ class RoleplayBot:
         if not update.message or not update.message.text:
             return
 
+        self.last_update_at = time.time()
         try:
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id,
@@ -315,8 +316,11 @@ class RoleplayBot:
             reply = await self.ask(update.message.text)
             for part in utils.split_reply(reply):
                 await update.message.reply_text(part)
+            self.last_reply_at = time.time()
+            self.consecutive_telegram_network_errors = 0
             logger.info("Replied to user message")
         except Exception as exc:
+            self.consecutive_telegram_network_errors = getattr(self, "consecutive_telegram_network_errors", 0) + 1
             logger.error("chat error: %s", exc, exc_info=True)
             await update.message.reply_text("……信号断了一下。\n\n等一下再试。")
 

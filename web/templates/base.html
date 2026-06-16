@@ -85,7 +85,7 @@
   <div class="main">
     <!-- 顶部状态栏 -->
     <div class="topbar">
-      <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="菜单" title="菜单">
+      <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="菜单" title="菜单">
         <svg width="20" height="20"><use href="{{ url_for('static', filename='icons/icons.svg') }}#menu"/></svg>
       </button>
 
@@ -104,7 +104,7 @@
       </strong></span>
       <span>运行：{{ uptime or '—' }}</span>
 
-      <button class="theme-toggle" id="theme-toggle" aria-label="切换主题" title="切换浅色/暗色模式">
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="切换主题" title="切换浅色/暗色模式">
         <svg class="theme-icon" id="theme-icon-light"><use href="{{ url_for('static', filename='icons/icons.svg') }}#moon"/></svg>
         <svg class="theme-icon hidden" id="theme-icon-dark"><use href="{{ url_for('static', filename='icons/icons.svg') }}#sun"/></svg>
       </button>
@@ -119,56 +119,7 @@
 
 </div>
 
-<script src="{{ url_for('static', filename='js/app.js') }}"></script>
-<script>
-// Theme toggle
-(function() {
-  const html = document.documentElement;
-  const btn = document.getElementById('theme-toggle');
-  const iconLight = document.getElementById('theme-icon-light');
-  const iconDark = document.getElementById('theme-icon-dark');
-
-  // Load saved theme
-  const saved = localStorage.getItem('theme');
-  if (saved === 'dark') {
-    html.setAttribute('data-theme', 'dark');
-    iconLight.classList.add('hidden');
-    iconDark.classList.remove('hidden');
-  }
-
-  btn.addEventListener('click', function() {
-    const current = html.getAttribute('data-theme');
-    const next = current === 'dark' ? 'light' : 'dark';
-    html.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-
-    if (next === 'dark') {
-      iconLight.classList.add('hidden');
-      iconDark.classList.remove('hidden');
-    } else {
-      iconLight.classList.remove('hidden');
-      iconDark.classList.add('hidden');
-    }
-  });
-})();
-
-// Mobile sidebar toggle
-(function() {
-  const sidebar = document.getElementById('sidebar');
-  const overlay = document.getElementById('sidebar-overlay');
-  const btn = document.getElementById('mobile-menu-btn');
-
-  function open() { sidebar.classList.add('open'); overlay.classList.add('open'); }
-  function close() { sidebar.classList.remove('open'); overlay.classList.remove('open'); }
-
-  btn.addEventListener('click', function(e) { e.stopPropagation(); open(); });
-  overlay.addEventListener('click', close);
-  // Close on nav click (mobile)
-  sidebar.querySelectorAll('.sidebar-nav a').forEach(function(a) {
-    a.addEventListener('click', function() { if (window.innerWidth <= 768) close(); });
-  });
-})();
-</script>
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
