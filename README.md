@@ -43,31 +43,37 @@ Telegram Bot + Web 导演台 + Multi-provider LLM Router + 结构化长期记忆
  │                    (NPC主动行为)                    │          provider_state.json
  │                         │                         │                │
  │                    ContextSelector ←───────────────┘          多供应商 API
- │                    (动态上下文选择)                            (智谱/DeepSeek/
+ │                    (State→Rel→Fact 三层)                       (智谱/DeepSeek/
  │                         │                                     OpenRouter/...)
  │                    memory_manager.py
  │                         │
  │                    MemoryStore (v3)
  │                    (结构化长期记忆)
+ │                    scene_state: upsert 语义
  │
  ├── Web 管理面板 ──→ WorldManager ──→ data/worlds/*.yaml
  │                         │
  │                    runtime_state.json
  │
- └── EventBus (事件总线，模块解耦)
+ ├── RelationshipManager (关系唯一源, RLock + 回滚)
+ │
+ └── EventBus (事件总线: after_assistant_reply + relationship_changed)
 ```
 
 **模块边界：**
 
 ```text
-LLMRouter        ：只管模型选择、fallback、provider 状态。
-WorldManager     ：只管 active_world、世界文件热加载。
-MemoryManager    ：短期记忆 + 委托 MemoryStore 管理结构化长期记忆。
-MemoryStore      ：长期记忆 CRUD、查询、旧格式迁移、原子持久化。
-ContextSelector  ：动态选择注入 prompt 的上下文（记忆/关系/角色/剧情）。
-EventBus         ：轻量同步事件总线，解耦记忆/关系/时间/NPC 模块。
-Web Panel        ：只管展示和调用管理接口。
-Telegram Bot     ：只管聊天入口和用户命令。
+LLMRouter           ：只管模型选择、fallback、provider 状态。
+WorldManager        ：只管 active_world、世界文件热加载。
+MemoryManager       ：短期记忆 + 委托 MemoryStore 管理结构化长期记忆。
+MemoryStore         ：长期记忆 CRUD、查询、旧格式迁移、原子持久化。
+                      scene_state: upsert 语义；relationship: 不再写入。
+ContextSelector     ：动态选择上下文，State→Relationship→Fact 三层优先级。
+RelationshipManager ：关系数据唯一权威源，RLock + 回滚保护，
+                      Web/AI/注入 全部走同一实例。
+EventBus            ：轻量同步事件总线，解耦记忆/关系/时间/NPC 模块。
+Web Panel           ：只管展示和调用管理接口。
+Telegram Bot        ：只管聊天入口和用户命令。
 
 runtime_state.json  ：只保存运行时选择（active_world）。
 provider_state.json ：只保存 provider 失败、冷却、耗尽、最近错误。
@@ -145,7 +151,7 @@ project/
 
 ---
 
-# 🧠 记忆系统（v3 结构化）
+# 🧠 记忆系统（v3 结构化 + Phase 1-4 增强）
 
 ## 数据结构
 
@@ -155,7 +161,7 @@ v3 起长期记忆使用结构化 `MemoryItem` 记录，替代原来的扁平字
 |------|------|
 | `id` | 唯一标识（mem_xxxxxxxx） |
 | `world_id` | 所属世界 |
-| `type` | 类型（fact/relationship/event/promise/preference/secret/goal/scene_state） |
+| `type` | 类型（fact/event/promise/preference/secret/goal/scene_state） |
 | `content` | 记忆文本 |
 | `participants` | 相关角色列表 |
 | `importance` | 重要度（0.0~1.0） |
@@ -165,6 +171,9 @@ v3 起长期记忆使用结构化 `MemoryItem` 记录，替代原来的扁平字
 | `recall_count` | 召回次数 |
 | `created_at` / `updated_at` | 时间戳 |
 | `promise_from` / `promise_to` / `promise_status` | 承诺管理 |
+
+> **注意**：`relationship` 类型已由 `RelationshipManager` 独立管理，不再写入 MemoryStore。
+> `scene_state` 采用 upsert 语义 — 写入时自动将旧状态标记为 `superseded`，同一时刻仅 1 条 active。
 
 ## 文件结构
 
@@ -189,20 +198,25 @@ data/memory/{world}_summary.json       — 压缩摘要历史
 
 ---
 
-# 🎯 动态上下文选择（v3 新增）
+# 🎯 动态上下文选择（v3 + Phase 4 三层优先级）
 
-`ContextSelector` 在每次聊天前动态选择注入 prompt 的内容，替代了原来的"全量记忆无差别注入"。
+`ContextSelector` 在每次聊天前按 **State → Relationship → Fact** 三层优先级动态选择注入 prompt 的内容。
 
 **输入：** 用户消息、世界、角色、长期记忆、关系、剧情状态、时间
 
-**输出：** 本轮相关上下文（评分排序，模块预算控制，去重）
+**三层优先级：**
+| 层级 | 内容 | 策略 |
+|------|------|------|
+| **State** | scene_state + 剧情状态 + 时间 | 始终注入，优先级 10，不参与竞争 |
+| **Relationship** | 关系网络 6 维度数值 | 按在场/被提及角色注入，优先级 8 |
+| **Fact** | fact/event/preference/secret/goal | 相关性评分竞争，预算控制 |
 
 **预算控制（默认）：**
 | 模块 | Token 预算 |
 |------|-----------|
 | 世界观 | 800 |
 | 角色设定 | 400 |
-| 长期记忆 | 600 |
+| 长期记忆 | 600（State 优先消费） |
 | 关系状态 | 300 |
 | 剧情状态 | 400 |
 | 时间信息 | 150 |
@@ -211,9 +225,11 @@ data/memory/{world}_summary.json       — 压缩摘要历史
 
 ---
 
-# 📡 轻量 EventBus（v3 新增）
+# 📡 轻量 EventBus（v3 + Phase 3 增强）
 
 `EventBus` 提供同步事件发布/订阅机制，用于模块解耦。
+
+**已接入事件：** `after_assistant_reply`（记忆维护 + 时间更新）、`relationship_changed`（关系数值变更通知）
 
 预定义事件：`before_user_message`、`after_assistant_reply`、`memory_created`、`relationship_changed`、`time_advanced`、`provider_failed`、`provider_switched` 等 16 个。
 

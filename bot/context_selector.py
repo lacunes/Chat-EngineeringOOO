@@ -105,11 +105,21 @@ class ContextSelector:
         active_characters: list[str] | None = None,
         current_scene: str = "",
     ) -> SelectionResult:
-        """执行上下文选择，返回 SelectionResult。"""
+        """执行上下文选择，返回 SelectionResult。
+
+        注入优先级（Phase 4）：
+          1. STATE  — 时间 + 剧情状态 + 当前场景状态（始终注入，不参与竞争）
+          2. RELATIONSHIP — 当前关系数值（按相关角色注入）
+          3. FACT — 长期事实/事件/偏好（按相关性评分竞争，预算控制）
+        """
         result = SelectionResult()
         result.budgets = {k: Budget(v) for k, v in self._budgets.items()}
 
-        # ── 时间信息：始终注入（预算充足，不变）──
+        # ══════════════════════════════════════════════════════
+        # Layer 1: STATE — 始终注入，不参与评分竞争
+        # ══════════════════════════════════════════════════════
+
+        # 1a. 时间信息
         time_text = time_manager.get_summary()
         if time_text:
             item = ContextItem(
@@ -122,48 +132,58 @@ class ContextSelector:
             result.time_context.append(item)
             result.total_tokens += item.token_estimate
 
-        # ── 世界观：选择相关片段 ──
-        world_items = self._select_world_context(world, user_text, current_scene, result.budgets["world"])
-        result.world_context = world_items
-        result.total_tokens += sum(it.token_estimate for it in world_items)
+        # 1b. 剧情状态
+        story_text = story_state.get_summary()
+        if story_text:
+            item = ContextItem(
+                source="story",
+                content=story_text,
+                priority=10,
+                reason="当前剧情状态（始终注入）",
+                token_estimate=_estimate_tokens(story_text),
+            )
+            result.story_context.append(item)
+            result.total_tokens += item.token_estimate
 
-        # ── 角色设定：选择在场/被提及的角色 ──
-        char_items = self._select_character_context(world, user_text, active_characters or [], result.budgets["character"])
-        result.character_context = char_items
-        result.total_tokens += sum(it.token_estimate for it in char_items)
-
-        # ── 长期记忆：按相关性选择 ──
-        mem_items, mem_excluded = self._select_memory_context(
-            memory_store, user_text, active_characters or [], result.budgets["memory"]
+        # 1c. 当前场景状态（MemoryStore 中唯一的 active scene_state）
+        state_items, state_excluded = self._select_scene_state(
+            memory_store, result.budgets["memory"]
         )
-        result.memory_context = mem_items
-        result.excluded_items.extend(mem_excluded)
-        result.total_tokens += sum(it.token_estimate for it in mem_items)
+        # scene_state 注入到 memory_context 的最前面（标记为 state 来源）
+        result.memory_context.extend(state_items)
+        result.excluded_items.extend(state_excluded)
+        result.total_tokens += sum(it.token_estimate for it in state_items)
 
-        # ── 关系状态 ──
+        # ══════════════════════════════════════════════════════
+        # Layer 2: RELATIONSHIP — 当前关系数值
+        # ══════════════════════════════════════════════════════
         rel_items = self._select_relationship_context(
             relationship_manager, active_characters or [], result.budgets["relationship"]
         )
         result.relationship_context = rel_items
         result.total_tokens += sum(it.token_estimate for it in rel_items)
 
-        # ── 剧情状态 ──
-        story_text = story_state.get_summary()
-        if story_text:
-            item = ContextItem(
-                source="story",
-                content=story_text,
-                priority=8,
-                reason="当前剧情状态",
-                token_estimate=_estimate_tokens(story_text),
-            )
-            budget = result.budgets["story"]
-            if budget.can_fit(item.token_estimate):
-                result.story_context.append(item)
-                budget.used += item.token_estimate
-                result.total_tokens += item.token_estimate
-            else:
-                result.excluded_items.append(item)
+        # ══════════════════════════════════════════════════════
+        # Layer 3: FACT — 长期事实，按相关性评分竞争
+        # ══════════════════════════════════════════════════════
+        # 世界观
+        world_items = self._select_world_context(world, user_text, current_scene, result.budgets["world"])
+        result.world_context = world_items
+        result.total_tokens += sum(it.token_estimate for it in world_items)
+
+        # 角色设定
+        char_items = self._select_character_context(world, user_text, active_characters or [], result.budgets["character"])
+        result.character_context = char_items
+        result.total_tokens += sum(it.token_estimate for it in char_items)
+
+        # 长期记忆（排除 scene_state，已在上方 State Layer 处理）
+        mem_items, mem_excluded = self._select_memory_context(
+            memory_store, user_text, active_characters or [], result.budgets["memory"],
+            exclude_types={"scene_state"},
+        )
+        result.memory_context.extend(mem_items)
+        result.excluded_items.extend(mem_excluded)
+        result.total_tokens += sum(it.token_estimate for it in mem_items)
 
         return result
 
@@ -239,11 +259,56 @@ class ContextSelector:
 
         return items
 
-    def _select_memory_context(
-        self, store, user_text: str, active_characters: list[str], budget: Budget
+    def _select_scene_state(
+        self, store, budget: Budget
     ) -> tuple[list[ContextItem], list[ContextItem]]:
-        """从长期记忆中按相关性评分选择。返回 (selected, excluded)。"""
-        all_items = store.active_items()
+        """提取当前场景状态（active scene_state），始终注入，不参与评分竞争。
+
+        Phase 2 保证同一时刻只有 1 条 active scene_state。
+        返回 (selected, excluded)。
+        """
+        scene_items = [
+            m for m in store.active_items() if m.type == "scene_state"
+        ]
+        if not scene_items:
+            return [], []
+
+        selected = []
+        excluded = []
+        for mem in scene_items:
+            text = f"[scene_state] {mem.content}"
+            if mem.participants:
+                text += f"（{'、'.join(mem.participants)}）"
+            tokens = _estimate_tokens(text)
+
+            item = ContextItem(
+                source="state",
+                content=text,
+                priority=10,
+                reason="当前场景状态（State Layer 始终注入）",
+                token_estimate=tokens,
+                ref_id=mem.id,
+            )
+            if budget.can_fit(tokens):
+                selected.append(item)
+                budget.used += tokens
+                store.record_recall(mem.id)
+            else:
+                excluded.append(item)
+
+        return selected, excluded
+
+    def _select_memory_context(
+        self, store, user_text: str, active_characters: list[str], budget: Budget,
+        exclude_types: set[str] | None = None,
+    ) -> tuple[list[ContextItem], list[ContextItem]]:
+        """从长期记忆中按相关性评分选择。返回 (selected, excluded)。
+
+        exclude_types: 排除的记忆类型集合（如 {"scene_state"}）。这些类型由
+                       State Layer 单独处理，不参与事实评分竞争。
+        """
+        exclude = exclude_types or set()
+        all_items = [m for m in store.active_items() if m.type not in exclude]
         if not all_items:
             return [], []
 

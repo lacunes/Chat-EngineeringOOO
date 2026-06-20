@@ -114,6 +114,12 @@ class MemoryStore:
 
         self._load()
 
+        # 一次性清理：将旧的多条 active scene_state 中非最新的标记为 superseded
+        cleaned = self._cleanup_duplicate_scene_states()
+        if cleaned:
+            self._save()
+            logger.info("Cleaned up %d duplicate scene_state(s) from legacy data", cleaned)
+
     # ── 属性 ──
 
     @property
@@ -138,7 +144,11 @@ class MemoryStore:
     # ── CRUD ──
 
     def add(self, item: MemoryItem) -> str:
-        """添加一条记忆。如果 content 与已有记忆高度相似则合并。返回 id。"""
+        """添加一条记忆。如果 content 与已有记忆高度相似则合并。返回 id。
+
+        scene_state 类型采用 upsert 语义：添加前自动将已有 active scene_state
+        标记为 superseded，确保同一时刻只有一条当前场景状态。
+        """
         if not item.id:
             item.id = _new_id()
         if not item.world_id:
@@ -153,6 +163,10 @@ class MemoryStore:
             item.status = "active"
 
         with self._lock:
+            # ── scene_state upsert：新状态替代旧状态 ──
+            if item.type == "scene_state":
+                self._supersede_scene_states()
+
             # 检查是否有可合并的已有记忆
             merged = self._try_merge(item)
             if merged:
@@ -388,6 +402,42 @@ class MemoryStore:
         with self._lock:
             data = [asdict(item) for item in self._items.values()]
             self._atomic_write_json(self._new_path, data)
+
+    def _supersede_scene_states(self) -> int:
+        """将所有 active scene_state 标记为 superseded。返回受影响的数量。"""
+        count = 0
+        for item in self._items.values():
+            if item.type == "scene_state" and item.status == "active":
+                item.status = "superseded"
+                item.updated_at = _now()
+                count += 1
+        if count:
+            logger.debug("Superseded %d old scene_state(s)", count)
+        return count
+
+    def _cleanup_duplicate_scene_states(self) -> int:
+        """如果存在多条 active scene_state，只保留最新的一条（按 created_at 排序），
+        其余标记为 superseded。用于清理 Phase 2 之前的遗留数据。
+        返回被清理的数量。
+        """
+        active_scenes = [
+            item for item in self._items.values()
+            if item.type == "scene_state" and item.status == "active"
+        ]
+        if len(active_scenes) <= 1:
+            return 0
+
+        # 按创建时间排序，保留最新的
+        active_scenes.sort(key=lambda m: m.created_at or "")
+        # 最新的保留 active，其余标记 superseded
+        for item in active_scenes[:-1]:
+            item.status = "superseded"
+            item.updated_at = _now()
+        logger.info(
+            "Cleanup: %d duplicate scene_state(s) → %d superseded, 1 kept active",
+            len(active_scenes), len(active_scenes) - 1,
+        )
+        return len(active_scenes) - 1
 
     def _try_merge(self, new_item: MemoryItem) -> Optional[str]:
         """检查是否有可合并的已有记忆（content 完全相同或高度相似）。

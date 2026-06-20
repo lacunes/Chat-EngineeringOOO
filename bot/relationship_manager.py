@@ -27,11 +27,12 @@ DIMENSION_LABELS: dict[str, str] = {
 class RelationshipManager:
     """管理当前世界的关系网络。"""
 
-    def __init__(self, world_name: str):
+    def __init__(self, world_name: str, event_bus=None):
         settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         self.world_name = world_name
         self.file_path = settings.MEMORY_DIR / f"{world_name}_relationships.json"
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._event_bus = event_bus  # 可选：EventBus 实例，用于发射 relationship_changed 事件
 
         self.characters: list[str] = []
         self.relations: dict[str, dict] = {}       # "角色A->角色B": {...}
@@ -194,64 +195,102 @@ class RelationshipManager:
     _IGNORED_NAMES: set[str] = {"用户", "玩家", "我", "你", "他", "她", "它"}
 
     def apply_changes(self, changes: list[dict], message_index: int) -> list[str]:
-        """应用抽取出的关系变化，返回需显示的提示文本列表。"""
+        """应用抽取出的关系变化，返回需显示的提示文本列表。
+
+        持有 _lock 全程保护，防止与 Web 面板并发保存冲突。
+        修改前创建快照，异常时自动回滚。
+        变更后通过 EventBus 发射 relationship_changed 事件。
+        """
         hints: list[str] = []
-        for change in changes:
-            from_char = (change.get("from") or "").strip()
-            to_char = (change.get("to") or "").strip()
-            if not from_char or not to_char or from_char == to_char:
-                continue
-            # 过滤玩家角色和通用称呼
-            if from_char in self._IGNORED_NAMES or to_char in self._IGNORED_NAMES:
-                logger.debug("Skipping relation involving ignored name: %s -> %s", from_char, to_char)
-                continue
+        with self._lock:
+            # ── 回滚保护：修改前快照 ──
+            snapshot = _snapshot_relations(self.relations)
 
-            # 尝试匹配已有角色名（处理昵称变体：如"小B"匹配到"B"）
-            from_char = self._resolve_name(from_char)
-            to_char = self._resolve_name(to_char)
-
-            self.ensure_character(from_char)
-            self.ensure_character(to_char)
-
-            rel = self._get_relation(from_char, to_char)
-            delta = change.get("changes", {})
-            note = change.get("note", "")
-
-            significant = False
-            change_parts: list[str] = []
-            for dim in DIMENSION_LABELS:
-                if dim in delta:
-                    old = rel[dim]
-                    if old >= self.DEADLOCK_THRESHOLD or old <= self.DEADLOCK_LOWER:
-                        # 死锁维度：手动设为 110/-100 后不再自动变化
+            try:
+                for change in changes:
+                    from_char = (change.get("from") or "").strip()
+                    to_char = (change.get("to") or "").strip()
+                    if not from_char or not to_char or from_char == to_char:
                         continue
-                    d = int(delta[dim])
-                    if d == 0:
+                    # 过滤玩家角色和通用称呼
+                    if from_char in self._IGNORED_NAMES or to_char in self._IGNORED_NAMES:
+                        logger.debug("Skipping relation involving ignored name: %s -> %s", from_char, to_char)
                         continue
-                    new = max(0, min(100, old + d))
-                    actual_d = new - old
-                    if actual_d == 0:
-                        continue
-                    rel[dim] = new
-                    sign = "+" if actual_d > 0 else ""
-                    change_parts.append(f"{DIMENSION_LABELS[dim]}{sign}{actual_d}")
-                    if abs(actual_d) > settings.RELATION_SIGNIFICANT_THRESHOLD:
-                        significant = True
 
-            if change_parts:
-                rel["last_updated"] = message_index
-                if note and note not in rel["notes"]:
-                    rel["notes"].append(note)
-                    if len(rel["notes"]) > 10:
-                        rel["notes"] = rel["notes"][-10:]
+                    # 尝试匹配已有角色名（处理昵称变体：如"小B"匹配到"B"）
+                    from_char = self._resolve_name(from_char)
+                    to_char = self._resolve_name(to_char)
 
-                hint = f"{from_char}→{to_char}：{', '.join(change_parts)}"
-                if significant:
-                    hint += " ⚡"
-                hints.append(hint)
+                    self.ensure_character(from_char)
+                    self.ensure_character(to_char)
 
-        if changes:
-            self.save()
+                    rel = self._get_relation(from_char, to_char)
+                    delta = change.get("changes", {})
+                    note = change.get("note", "")
+
+                    significant = False
+                    change_parts: list[str] = []
+                    for dim in DIMENSION_LABELS:
+                        if dim in delta:
+                            old = rel[dim]
+                            if old >= self.DEADLOCK_THRESHOLD or old <= self.DEADLOCK_LOWER:
+                                # 死锁维度：手动设为 110/-100 后不再自动变化
+                                continue
+                            d = int(delta[dim])
+                            if d == 0:
+                                continue
+                            new = max(0, min(100, old + d))
+                            actual_d = new - old
+                            if actual_d == 0:
+                                continue
+                            rel[dim] = new
+                            sign = "+" if actual_d > 0 else ""
+                            change_parts.append(f"{DIMENSION_LABELS[dim]}{sign}{actual_d}")
+                            if abs(actual_d) > settings.RELATION_SIGNIFICANT_THRESHOLD:
+                                significant = True
+
+                    if change_parts:
+                        rel["last_updated"] = message_index
+                        if note and note not in rel["notes"]:
+                            rel["notes"].append(note)
+                            if len(rel["notes"]) > 10:
+                                rel["notes"] = rel["notes"][-10:]
+
+                        hint = f"{from_char}→{to_char}：{', '.join(change_parts)}"
+                        if significant:
+                            hint += " ⚡"
+                        hints.append(hint)
+
+            except Exception:
+                # ── 回滚：恢复修改前的快照 ──
+                logger.error(
+                    "Relation apply_changes failed, rolling back to snapshot (%d keys)",
+                    len(snapshot), exc_info=True,
+                )
+                self.relations = {
+                    key: self._empty_relation()
+                    for key in snapshot
+                }
+                for key, dims in snapshot.items():
+                    for d, v in dims.items():
+                        if key in self.relations:
+                            self.relations[key][d] = v
+                # 不保存，不回滚文件（磁盘上保留最后一次成功的版本）
+                return []
+
+            if changes and hints:
+                self.save()
+                # ── 发射事件 ──
+                if self._event_bus:
+                    try:
+                        self._event_bus.emit(
+                            "relationship_changed",
+                            world_id=self.world_name,
+                            changes=changes,
+                            hints=hints,
+                        )
+                    except Exception as exc:
+                        logger.debug("EventBus emit relationship_changed failed: %s", exc)
         return hints
 
     # ═══════════════════════════════════════════════════════

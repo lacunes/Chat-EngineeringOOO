@@ -53,7 +53,7 @@ class RoleplayBot:
         world = self.world_manager.get_world()
         self.world = world
         self.memory = MemoryManager(world.WORLD_NAME)
-        self.relationship_manager = RelationshipManager(world.WORLD_NAME)
+        self.relationship_manager = RelationshipManager(world.WORLD_NAME, event_bus=self.event_bus)
         self.time_manager = TimeManager(world.WORLD_NAME)
         # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
         self.npc_manager = NPCManager(world, self.memory)
@@ -428,8 +428,12 @@ class RoleplayBot:
 
         # ── 构建 Prompt（固定→半固定→动态→对话，最大化 prefix cache 命中）──
 
-        # 1. 固定层：世界设定 + 时间指令（世界不变则永远不变，100% 缓存命中）
-        world_prompt = self.world.SYSTEM_PROMPT + "\n" + prompts.TIME_INJECT_INSTRUCTION
+        # 1. 固定层：世界设定 + 时间指令 + 关系指令（世界不变则永远不变，100% 缓存命中）
+        world_prompt = (
+            self.world.SYSTEM_PROMPT + "\n"
+            + prompts.TIME_INJECT_INSTRUCTION + "\n"
+            + prompts.RELATION_INJECT_INSTRUCTION
+        )
 
         # 2. 半固定层：上下文选择器（动态选择长期记忆、关系、角色等）
         #    提取活跃角色和场景

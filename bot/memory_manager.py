@@ -341,6 +341,15 @@ class MemoryManager:
             raw_items = utils.parse_memory_json(extracted_text)
             new_items = utils.parse_memory_items(extracted_text) if raw_items else []
 
+            # ── 过滤：relationship 类型由 RelationshipManager 独立管理 ──
+            rel_filtered = [it for it in new_items if not it.startswith("[relationship]")]
+            if len(rel_filtered) != len(new_items):
+                logger.debug(
+                    "Filtered %d relationship items from memory extraction (handled by RelationshipManager)",
+                    len(new_items) - len(rel_filtered),
+                )
+            new_items = rel_filtered
+
             # 记录清洗掉了多少垃圾
             if raw_items and len(raw_items) != len(new_items):
                 removed_count = len(raw_items) - len(new_items)

@@ -83,59 +83,75 @@ def save():
                                    error=f"JSON 格式错误: {exc}",
                                    ctx=ctx)
 
-    # 结构化模式
+    # 结构化模式 — 增量更新，不清除 AI 自动抽取的关系
     dims = ["affection", "trust", "fear", "dependence", "suspicion", "hostility"]
-    new_relations: dict[str, dict] = {}
+    rm = ctx.relationship_manager
 
-    # 处理已有关系
-    i = 0
-    while f"rel_{i}_from" in request.form:
-        if request.form.get(f"rel_{i}_delete") == "1":
+    with rm._lock:
+        # 从现有关系出发，不清除不在表单中的关系（如 AI 抽取的新角色对）
+        form_keys: set[str] = set()
+
+        # 处理已有关系：更新或删除
+        i = 0
+        while f"rel_{i}_from" in request.form:
+            frm = (request.form.get(f"rel_{i}_from") or "").strip()
+            to = (request.form.get(f"rel_{i}_to") or "").strip()
+            if frm and to and frm != to:
+                key = f"{frm}->{to}"
+                form_keys.add(key)
+
+                if request.form.get(f"rel_{i}_delete") == "1":
+                    # 用户勾选删除
+                    if key in rm.relations:
+                        del rm.relations[key]
+                        logger.info("Web panel: deleted relation %s", key)
+                else:
+                    # 增量更新：保留已有 notes/last_updated，只更新维度值
+                    existing = rm.relations.get(key, rm._empty_relation())
+                    for dim in dims:
+                        try:
+                            existing[dim] = max(-100, min(110, int(request.form.get(f"rel_{i}_{dim}", "0") or 0)))
+                        except ValueError:
+                            pass  # 保留原值
+                    notes_text = (request.form.get(f"rel_{i}_notes") or "").strip()
+                    if notes_text:
+                        new_notes = [n.strip() for n in notes_text.split("\n") if n.strip()]
+                        if new_notes != existing.get("notes", []):
+                            existing["notes"] = new_notes
+                    # 不覆盖 last_updated（保留最近一次变更的真实记录）
+                    rm.relations[key] = existing
             i += 1
-            continue
-        frm = (request.form.get(f"rel_{i}_from") or "").strip()
-        to = (request.form.get(f"rel_{i}_to") or "").strip()
-        if frm and to and frm != to:
-            key = f"{frm}->{to}"
-            rel = {}
-            for dim in dims:
-                try:
-                    rel[dim] = max(-100, min(110, int(request.form.get(f"rel_{i}_{dim}", "0") or 0)))
-                except ValueError:
-                    rel[dim] = 0
-            notes_text = (request.form.get(f"rel_{i}_notes") or "").strip()
-            rel["notes"] = [n.strip() for n in notes_text.split("\n") if n.strip()]
-            rel["last_updated"] = 0
-            new_relations[key] = rel
-        i += 1
 
-    # 新增关系
-    new_from = (request.form.get("new_from") or "").strip()
-    new_to = (request.form.get("new_to") or "").strip()
-    if new_from and new_to and new_from != new_to:
-        key = f"{new_from}->{new_to}"
-        rel = {}
-        for dim in dims:
-            try:
-                rel[dim] = max(-100, min(110, int(request.form.get(f"new_{dim}", "0") or 0)))
-            except ValueError:
-                rel[dim] = 0
-        notes_text = (request.form.get("new_notes") or "").strip()
-        rel["notes"] = [n.strip() for n in notes_text.split("\n") if n.strip()]
-        rel["last_updated"] = 0
-        new_relations[key] = rel
+        # 新增关系
+        new_from = (request.form.get("new_from") or "").strip()
+        new_to = (request.form.get("new_to") or "").strip()
+        if new_from and new_to and new_from != new_to:
+            key = f"{new_from}->{new_to}"
+            if key not in rm.relations:
+                rel = rm._empty_relation()
+                for dim in dims:
+                    try:
+                        rel[dim] = max(-100, min(110, int(request.form.get(f"new_{dim}", "0") or 0)))
+                    except ValueError:
+                        pass
+                notes_text = (request.form.get("new_notes") or "").strip()
+                if notes_text:
+                    rel["notes"] = [n.strip() for n in notes_text.split("\n") if n.strip()]
+                rm.relations[key] = rel
+                form_keys.add(key)
 
-    # 更新角色列表
-    chars: set[str] = set()
-    for key in new_relations:
-        parts = key.split("->", 1)
-        if len(parts) == 2:
-            chars.add(parts[0].strip())
-            chars.add(parts[1].strip())
+        # 更新角色列表（包含所有 known chars，不丢失 AI 发现的角色）
+        chars: set[str] = set(rm.characters)
+        for key in rm.relations:
+            parts = key.split("->", 1)
+            if len(parts) == 2:
+                chars.add(parts[0].strip())
+                chars.add(parts[1].strip())
+        rm.characters = sorted(chars)
 
-    ctx.relationship_manager.characters = sorted(chars)
-    ctx.relationship_manager.relations = new_relations
-    ctx.relationship_manager.save()
-    audit_log("编辑关系", "结构化模式")
-    logger.info("Web panel: saved relationships (structured) for %s", ctx.world.WORLD_NAME)
-    return _flash_redirect(url_for("relations.index"), "关系网络已保存")
+        rm.save()
+
+    audit_log("编辑关系", f"结构化模式（{len(form_keys)} 个角色对）")
+    logger.info("Web panel: saved relationships (structured) for %s: %d pairs",
+                ctx.world.WORLD_NAME, len(form_keys))
+    return _flash_redirect(url_for("relations.index"), f"关系网络已保存（{len(form_keys)} 个角色对）")
