@@ -191,7 +191,10 @@ class MemoryManager:
         return None
 
     def add_long_memory_item(self, text: str) -> None:
-        """添加一条长期记忆（自动解析旧分类标签，转为结构化记录）。"""
+        """添加一条长期记忆（自动解析旧分类标签，转为结构化记录）。
+
+        relationship 类型已由 RelationshipManager 独立管理，此处跳过。
+        """
         clean = utils.normalize_text(text)
         if not clean:
             return
@@ -208,6 +211,11 @@ class MemoryManager:
         else:
             # 无标签默认为 preference
             item_type = "preference"
+
+        # ── relationship 由 RelationshipManager 独立管理，不写入 MemoryStore ──
+        if item_type == "relationship":
+            logger.debug("Skipped relationship memory (handled by RelationshipManager): %s", content[:80])
+            return
 
         item = MemoryItem(
             id=_new_id(),

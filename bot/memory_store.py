@@ -148,6 +148,8 @@ class MemoryStore:
 
         scene_state 类型采用 upsert 语义：添加前自动将已有 active scene_state
         标记为 superseded，确保同一时刻只有一条当前场景状态。
+
+        relationship 类型由 RelationshipManager 独立管理，此处拒绝写入。
         """
         if not item.id:
             item.id = _new_id()
@@ -159,6 +161,15 @@ class MemoryStore:
             item.updated_at = now
         if item.type not in MEMORY_TYPES:
             item.type = "fact"
+
+        # ── relationship 由 RelationshipManager 独立管理 ──
+        if item.type == "relationship":
+            logger.warning(
+                "Rejected relationship memory write (handled by RelationshipManager): %s",
+                item.content[:100],
+            )
+            return ""  # 返回空 id 表示拒绝
+
         if item.status not in LIFECYCLE_STATUSES:
             item.status = "active"
 
