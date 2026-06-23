@@ -18,9 +18,23 @@ memory_bp = Blueprint("memory", __name__, url_prefix="/memory")
 @memory_bp.route("/")
 @login_required
 def short_memory():
-    """短期记忆 + 长期记忆合并页面（含诊断信息）。"""
+    """短期记忆 + 长期记忆合并页面（含诊断信息）。
+
+    短期记忆展示：最新消息在上方（页面倒序），但每条记录携带原始 storage_index，
+    编辑/删除操作使用 storage_index 定位底层数据。
+    """
     ctx = _ctx()
-    recent = ctx.memory.memory[-120:]
+    all_messages = ctx.memory.memory
+
+    # 页面倒序展示（最新在上），附加 storage_index
+    display_messages = [
+        {"storage_index": idx, "message": msg}
+        for idx, msg in reversed(list(enumerate(all_messages)))
+    ]
+
+    # 截取最近 120 条展示
+    display_messages = display_messages[:120]
+
     mem_status = ctx.memory.get_memory_status()
 
     # 回复长度参数
@@ -47,7 +61,7 @@ def short_memory():
 
     return render_template(
         "memory.html",
-        short_messages=recent,
+        short_messages=display_messages,
         short_count=ctx.memory.message_count,
         long_items=real_long_items,
         long_count=real_long_count,
@@ -57,6 +71,44 @@ def short_memory():
         empty_protection_triggered=empty_protection_triggered,
         ctx=ctx,
     )
+
+
+@memory_bp.route("/short/<int:index>/edit", methods=["POST"])
+@login_required
+def edit_short_memory(index: int):
+    """编辑单条短期记忆（按存储索引）。"""
+    ctx = _ctx()
+    content = (request.form.get("content") or "").strip()
+    if not content:
+        return _flash_redirect(url_for("memory.short_memory"), "内容不能为空", "error")
+    if len(content) > settings.MEMO_SIZE_LIMIT:
+        return _flash_redirect(url_for("memory.short_memory"),
+                               f"内容过长，限制 {settings.MEMO_SIZE_LIMIT} 字", "error")
+
+    role = (request.form.get("role") or "").strip()
+    role = role if role in ("user", "assistant") else None
+
+    result = ctx.memory.update_short_memory(index, content, role)
+    if result is None:
+        return _flash_redirect(url_for("memory.short_memory"), "目标记录不存在或索引无效", "error")
+
+    audit_log("编辑短期记忆", f"#{index + 1}: → {content[:40]}")
+    logger.info("Web panel: edited short memory #%d", index + 1)
+    return _flash_redirect(url_for("memory.short_memory"), f"短期记忆 #{index + 1} 修改成功")
+
+
+@memory_bp.route("/short/<int:index>/delete", methods=["POST"])
+@login_required
+def delete_short_memory(index: int):
+    """删除单条短期记忆（按存储索引）。"""
+    ctx = _ctx()
+    removed = ctx.memory.delete_short_memory(index)
+    if removed is None:
+        return _flash_redirect(url_for("memory.short_memory"), "目标记录不存在或索引无效", "error")
+
+    audit_log("删除短期记忆", f"#{index + 1}: {removed.get('content', '')[:60]}")
+    logger.info("Web panel: deleted short memory #%d", index + 1)
+    return _flash_redirect(url_for("memory.short_memory"), f"短期记忆 #{index + 1} 已删除")
 
 
 @memory_bp.route("/long")

@@ -11,6 +11,7 @@ from pathlib import Path
 from bot import utils
 from bot.memory_store import MemoryStore, MemoryItem, _new_id, _now
 from config import prompts, settings
+import secrets
 
 
 logger = logging.getLogger("bot.memory")
@@ -114,6 +115,9 @@ class MemoryManager:
         self.summary_log = self._load_json_list(self._summary_path, "summary log")
         self.last_auto_memory_index = len(self.memory)
 
+        # 为旧消息补充 ID
+        self._migrate_short_memory_ids()
+
     # ── 长期记忆（向后兼容属性）──
 
     @property
@@ -175,13 +179,29 @@ class MemoryManager:
     def message_count(self) -> int:
         return len(self.memory)
 
+    @staticmethod
+    def _make_short_id() -> str:
+        """生成短期记忆唯一 ID：short_ + 8 位随机 hex。"""
+        return "short_" + secrets.token_hex(4)
+
+    def _migrate_short_memory_ids(self) -> None:
+        """为没有 id 的旧短期记忆补充唯一 ID。"""
+        migrated = 0
+        for msg in self.memory:
+            if "id" not in msg:
+                msg["id"] = self._make_short_id()
+                migrated += 1
+        if migrated:
+            logger.info("Migrated %d short memory messages with new IDs", migrated)
+            self.save_memory()
+
     def add_user_message(self, text: str) -> None:
         with self._lock:
-            self.memory.append({"role": "user", "content": text})
+            self.memory.append({"id": self._make_short_id(), "role": "user", "content": text})
 
     def add_assistant_message(self, text: str) -> None:
         with self._lock:
-            self.memory.append({"role": "assistant", "content": text})
+            self.memory.append({"id": self._make_short_id(), "role": "assistant", "content": text})
 
     def last_assistant_message(self) -> str | None:
         """返回最近一条 assistant 消息的文本，没有则返回 None。"""
@@ -189,6 +209,48 @@ class MemoryManager:
             if msg.get("role") == "assistant":
                 return msg.get("content")
         return None
+
+    def update_short_memory(self, index: int, content: str, role: str | None = None) -> dict | None:
+        """按存储索引更新单条短期记忆。返回更新后的消息 dict，失败返回 None。
+
+        只允许修改 content，role 仅在当前结构允许时修改（user/assistant）。
+        返回的 dict 不含内部 id 字段。
+        """
+        allowed_roles = {"user", "assistant"}
+        if role is not None and role not in allowed_roles:
+            logger.warning("Short memory update rejected: invalid role %s", role)
+            return None
+
+        with self._lock:
+            if not (0 <= index < len(self.memory)):
+                logger.warning("Short memory update rejected: index %d out of range [0, %d)", index, len(self.memory))
+                return None
+
+            msg = self.memory[index]
+            old_content = msg.get("content", "")
+            msg["content"] = content
+            if role is not None and role in allowed_roles:
+                msg["role"] = role
+
+            self.save_memory()
+            logger.info("Short memory updated at index %d: %s → %s", index, old_content[:40], content[:40])
+            return {"role": msg["role"], "content": msg["content"]}
+
+    def delete_short_memory(self, index: int) -> dict | None:
+        """按存储索引删除单条短期记忆。返回被删除的消息 dict，失败返回 None。"""
+        with self._lock:
+            if not (0 <= index < len(self.memory)):
+                logger.warning("Short memory delete rejected: index %d out of range [0, %d)", index, len(self.memory))
+                return None
+
+            removed = self.memory.pop(index)
+            self.save_memory()
+            logger.info("Short memory deleted at index %d: role=%s content=%s", index, removed.get("role"), removed.get("content", "")[:60])
+            return {"role": removed["role"], "content": removed["content"]}
+
+    def validate_short_memory_index(self, index: int) -> bool:
+        """验证存储索引是否有效（不加锁的快速检查，供 Web 路由使用）。"""
+        return 0 <= index < len(self.memory)
 
     def add_long_memory_item(self, text: str) -> None:
         """添加一条长期记忆（自动解析旧分类标签，转为结构化记录）。
@@ -274,7 +336,9 @@ class MemoryManager:
                 "content": dynamic_state,
             })
 
-        messages.extend(self.memory[-settings.CONTEXT_LENGTH:])
+        # 剔除内部字段（id 等），只保留 role/content 给 LLM
+        for msg in self.memory[-settings.CONTEXT_LENGTH:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
         return messages
 
     async def compress_old_memory(self, client) -> bool:

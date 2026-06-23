@@ -120,17 +120,56 @@
 
 <!-- 短期记忆 -->
 <div class="card">
-  <div class="card-header"><h2>短期记忆（最近 {{ short_messages|length }} 条）</h2></div>
+  <div class="card-header"><h2>短期记忆（共 {{ short_count }} 条，当前展示 {{ short_messages|length }} 条）</h2></div>
   {% if short_messages %}
+  <p class="text-muted" style="font-size:var(--text-xs);margin-bottom:var(--space-2);">最新消息在上方。编辑/删除使用原始存储索引，不影响 Prompt 对话顺序。</p>
   <div class="table-wrap">
     <table>
-      <thead><tr><th style="width:50px;">#</th><th style="width:80px;">角色</th><th>内容</th></tr></thead>
+      <thead><tr><th style="width:50px;">#</th><th style="width:80px;">角色</th><th>内容</th><th style="width:130px;">操作</th></tr></thead>
       <tbody>
-      {% for msg in short_messages %}
-      <tr>
-        <td style="text-align:right;color:var(--text-muted);">{{ loop.index }}</td>
-        <td><span class="badge {{ 'badge-info' if msg.role == 'user' else 'badge-success' if msg.role == 'assistant' else 'badge-warning' }}">{{ msg.role }}</span></td>
-        <td>{{ msg.content[:300] }}{% if msg.content|length > 300 %}…{% endif %}</td>
+      {% for item in short_messages %}
+      {% set msg = item.message %}
+      {% set storage_idx = item.storage_index %}
+      <tr id="short-row-{{ storage_idx }}" class="{{ 'short-row-latest' if loop.first else '' }}">
+        <td style="text-align:right;color:var(--text-muted);vertical-align:top;">
+          {% if loop.first %}<span class="badge badge-info" style="font-size:var(--text-xs);">最新</span>{% endif %}
+          <div style="font-size:var(--text-xs);color:var(--text-muted);">#{{ storage_idx + 1 }}</div>
+        </td>
+        <td style="vertical-align:top;">
+          <span class="badge {{ 'badge-info' if msg.role == 'user' else 'badge-success' }}">{{ msg.role }}</span>
+        </td>
+        <td style="vertical-align:top;">
+          <div class="short-display" id="short-display-{{ storage_idx }}" style="font-size:var(--text-sm);line-height:var(--lh-relaxed);white-space:pre-wrap;word-break:break-word;">{{ msg.content[:500] }}{% if msg.content|length > 500 %}…{% endif %}</div>
+          <div class="short-editor hidden" id="short-editor-{{ storage_idx }}" style="margin-top:var(--space-2);">
+            <form method="post" action="{{ url_for('memory.edit_short_memory', index=storage_idx) }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="role" value="{{ msg.role }}">
+              <textarea name="content" rows="3" class="form-input short-textarea" id="short-textarea-{{ storage_idx }}"></textarea>
+              <div style="display:flex;gap:var(--space-2);margin-top:var(--space-2);">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#save"/></svg>
+                  保存
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm short-cancel-btn" data-idx="{{ storage_idx }}">取消</button>
+              </div>
+            </form>
+          </div>
+        </td>
+        <td style="vertical-align:top;white-space:nowrap;">
+          <div style="display:flex;gap:var(--space-1);">
+            <button type="button" class="btn btn-ghost btn-sm short-edit-btn" data-idx="{{ storage_idx }}">
+              <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#pencil"/></svg>
+              编辑
+            </button>
+            <form method="post" action="{{ url_for('memory.delete_short_memory', index=storage_idx) }}" style="display:inline">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-danger btn-sm" data-confirm="确定删除这条短期记忆吗？删除后，该消息将不再参与后续对话上下文。">
+                <svg width="14" height="14"><use href="{{ url_for('static', filename='icons/icons.svg') }}#trash-2"/></svg>
+                删除
+              </button>
+            </form>
+          </div>
+        </td>
       </tr>
       {% endfor %}
       </tbody>
@@ -142,4 +181,44 @@
     </div>
   {% endif %}
 </div>
+
+<script>
+// 短期记忆编辑/取消交互
+(function() {
+  function setupShortMemoryEdit() {
+    document.querySelectorAll('.short-edit-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx = this.getAttribute('data-idx');
+        var displayEl = document.getElementById('short-display-' + idx);
+        var editorEl = document.getElementById('short-editor-' + idx);
+        var textarea = document.getElementById('short-textarea-' + idx);
+        if (displayEl && editorEl && textarea) {
+          textarea.value = (displayEl.textContent || '').trim();
+          displayEl.classList.add('hidden');
+          editorEl.classList.remove('hidden');
+          textarea.focus();
+        }
+      });
+    });
+
+    document.querySelectorAll('.short-cancel-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx = this.getAttribute('data-idx');
+        var displayEl = document.getElementById('short-display-' + idx);
+        var editorEl = document.getElementById('short-editor-' + idx);
+        if (displayEl && editorEl) {
+          editorEl.classList.add('hidden');
+          displayEl.classList.remove('hidden');
+        }
+      });
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupShortMemoryEdit);
+  } else {
+    setupShortMemoryEdit();
+  }
+})();
+</script>
 {% endblock %}
