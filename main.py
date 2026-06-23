@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import os
 import re
 import sys
@@ -68,15 +69,32 @@ def setup_logging() -> None:
     fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
     sensitive_filter = SensitiveDataFilter()
 
-    # 主日志文件（INFO+）
-    app_handler = logging.FileHandler(settings.LOG_FILE, encoding="utf-8")
+    # ── 日志轮转配置 ──
+    # app.log：单文件最大 5MB，保留 5 个备份
+    APP_LOG_MAX_BYTES = 5 * 1024 * 1024
+    APP_LOG_BACKUP_COUNT = 5
+    # error.log：单文件最大 2MB，保留 10 个备份
+    ERROR_LOG_MAX_BYTES = 2 * 1024 * 1024
+    ERROR_LOG_BACKUP_COUNT = 10
+    # 专题日志（memory/relation/story/security）：单文件最大 2MB，保留 5 个备份
+    SPECIALTY_MAX_BYTES = 2 * 1024 * 1024
+    SPECIALTY_BACKUP_COUNT = 5
+
+    # 主日志文件（INFO+），使用 RotatingFileHandler 自动轮转
+    app_handler = logging.handlers.RotatingFileHandler(
+        settings.LOG_FILE, encoding="utf-8",
+        maxBytes=APP_LOG_MAX_BYTES, backupCount=APP_LOG_BACKUP_COUNT,
+    )
     app_handler.setLevel(logging.INFO)
     app_handler.setFormatter(fmt)
     app_handler.addFilter(sensitive_filter)
     root.addHandler(app_handler)
 
-    # 错误日志文件（ERROR+）
-    err_handler = logging.FileHandler(settings.LOG_ERROR_FILE, encoding="utf-8")
+    # 错误日志文件（ERROR+），使用 RotatingFileHandler 自动轮转
+    err_handler = logging.handlers.RotatingFileHandler(
+        settings.LOG_ERROR_FILE, encoding="utf-8",
+        maxBytes=ERROR_LOG_MAX_BYTES, backupCount=ERROR_LOG_BACKUP_COUNT,
+    )
     err_handler.setLevel(logging.ERROR)
     err_handler.setFormatter(fmt)
     err_handler.addFilter(sensitive_filter)
@@ -90,24 +108,33 @@ def setup_logging() -> None:
     root.addHandler(console)
 
     # ── 专题日志 ──
-    _add_specialty_logger("bot.memory", settings.LOG_MEMORY_FILE, fmt, sensitive_filter)
-    _add_specialty_logger("bot.relation", settings.LOG_RELATION_FILE, fmt, sensitive_filter)
-    _add_specialty_logger("bot.story", settings.LOG_STORY_FILE, fmt, sensitive_filter)
-    _add_specialty_logger("security", settings.LOG_SECURITY_FILE, fmt, sensitive_filter)
+    _add_specialty_logger("bot.memory", settings.LOG_MEMORY_FILE, fmt, sensitive_filter,
+                          max_bytes=SPECIALTY_MAX_BYTES, backup_count=SPECIALTY_BACKUP_COUNT)
+    _add_specialty_logger("bot.relation", settings.LOG_RELATION_FILE, fmt, sensitive_filter,
+                          max_bytes=SPECIALTY_MAX_BYTES, backup_count=SPECIALTY_BACKUP_COUNT)
+    _add_specialty_logger("bot.story", settings.LOG_STORY_FILE, fmt, sensitive_filter,
+                          max_bytes=SPECIALTY_MAX_BYTES, backup_count=SPECIALTY_BACKUP_COUNT)
+    _add_specialty_logger("security", settings.LOG_SECURITY_FILE, fmt, sensitive_filter,
+                          max_bytes=SPECIALTY_MAX_BYTES, backup_count=SPECIALTY_BACKUP_COUNT)
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     root._roleplay_logging_configured = True
 
 
-def _add_specialty_logger(name: str, path, fmt, sensitive_filter: logging.Filter) -> logging.Logger:
-    """创建写入专属文件的 logger，不传播到根 logger（避免重复输出）。"""
+def _add_specialty_logger(name: str, path, fmt, sensitive_filter: logging.Filter,
+                         max_bytes: int = 2 * 1024 * 1024,
+                         backup_count: int = 5) -> logging.Logger:
+    """创建写入专属文件的 logger，使用 RotatingFileHandler 自动轮转，不传播到根 logger。"""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     logger.propagate = False  # 不传播到根 logger，避免重复写 app.log
     if getattr(logger, "_roleplay_logging_configured", False):
         return logger
-    handler = logging.FileHandler(path, encoding="utf-8")
+    handler = logging.handlers.RotatingFileHandler(
+        path, encoding="utf-8",
+        maxBytes=max_bytes, backupCount=backup_count,
+    )
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(fmt)
     handler.addFilter(sensitive_filter)

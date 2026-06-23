@@ -58,15 +58,16 @@
         <tbody>
         {% if relations %}
           {% for key, rel in relations.items() %}
+          {% set row_index = loop.index0 %}
           {% set parts = key.split('->') %}
           <tr>
-            <td><input type="text" name="rel_{{ loop.index0 }}_from" value="{{ parts[0] }}" class="form-input" style="width:70px;"></td>
-            <td><input type="text" name="rel_{{ loop.index0 }}_to" value="{{ parts[1] if parts|length > 1 else '' }}" class="form-input" style="width:70px;"></td>
+            <td><input type="text" name="rel_{{ row_index }}_from" value="{{ parts[0] }}" class="form-input" style="width:70px;"></td>
+            <td><input type="text" name="rel_{{ row_index }}_to" value="{{ parts[1] if parts|length > 1 else '' }}" class="form-input" style="width:70px;"></td>
             {% for dim, _ in dim_labels %}
-            <td><input type="number" name="rel_{{ loop.index0 }}_{{ dim }}" value="{{ rel.get(dim, 0) }}" min="-100" max="110" class="form-input" style="width:60px;text-align:center;"></td>
+            <td><input type="number" name="rel_{{ row_index }}_{{ dim }}" value="{{ rel.get(dim, 0) }}" min="-100" max="110" class="form-input" style="width:60px;text-align:center;"></td>
             {% endfor %}
-            <td><textarea name="rel_{{ loop.index0 }}_notes" rows="2" class="form-input" style="width:140px;">{{ rel.get('notes', [])|join('\n') }}</textarea></td>
-            <td><label style="font-size:var(--text-xs);white-space:nowrap;"><input type="checkbox" name="rel_{{ loop.index0 }}_delete" value="1"> 删除</label></td>
+            <td><textarea name="rel_{{ row_index }}_notes" rows="2" class="form-input" style="width:140px;">{{ rel.get('notes', [])|join('\n') }}</textarea></td>
+            <td><label style="font-size:var(--text-xs);white-space:nowrap;"><input type="checkbox" name="rel_{{ row_index }}_delete" value="1"> 删除</label></td>
           </tr>
           {% endfor %}
         {% else %}
