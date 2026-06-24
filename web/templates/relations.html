@@ -14,6 +14,26 @@
 
 {% if error %}<div class="flash-msg flash-error" style="margin-bottom:var(--space-3);">{{ error }}</div>{% endif %}
 
+<div class="card">
+  <div class="card-header"><h2>关系状态调试（只读）</h2></div>
+  <div class="stats-grid" style="margin-bottom:var(--space-3);">
+    <div class="stat-item"><div class="stat-label">当前世界</div><div class="stat-value" style="font-size:var(--text-sm);">{{ debug_info.world }}</div></div>
+    <div class="stat-item"><div class="stat-label">实例</div><div class="stat-value" style="font-size:var(--text-sm);">{{ debug_info.instance_id }}</div></div>
+    <div class="stat-item"><div class="stat-label">Revision</div><div class="stat-value">{{ debug_info.revision }}</div></div>
+    <div class="stat-item"><div class="stat-label">一致性</div><div class="stat-value" style="font-size:var(--text-sm);color:{% if debug_info.consistency_ok %}var(--success){% else %}var(--danger){% endif %};">{{ '内存 = JSON = Prompt' if debug_info.consistency_ok else '不一致' }}</div></div>
+  </div>
+  <p class="text-muted" style="font-size:var(--text-xs);"><strong>JSON：</strong>{{ debug_info.json_path }}</p>
+  <p class="text-muted" style="font-size:var(--text-xs);"><strong>最后来源：</strong>{{ debug_info.last_modified_source }}　<strong>时间：</strong>{{ debug_info.last_modified_at }}</p>
+  {% if debug_info.last_change %}
+  <pre style="white-space:pre-wrap;font-size:var(--text-xs);">{{ debug_info.last_change | tojson(indent=2) }}</pre>
+  {% endif %}
+  {% if not debug_info.consistency_ok %}<p class="flash-msg flash-error">{{ debug_info.consistency_error }}</p>{% endif %}
+  <details style="margin-top:var(--space-3);">
+    <summary>下一轮 Prompt 实际关系摘要</summary>
+    <pre style="white-space:pre-wrap;font-size:var(--text-xs);">{{ debug_info.prompt_summary or '（无关系摘要）' }}</pre>
+  </details>
+</div>
+
 {% if raw_mode %}
 <!-- 高级模式：JSON 编辑 -->
 <div class="card">

@@ -536,6 +536,8 @@ class RoleplayBot:
         if finish == "length":
             reply += length_notice
 
+        # 只检测明确的关系面板式数字表达并记录 relation.log，不改写正常叙事。
+        self.relationship_manager.warn_if_reply_exposes_relation_numbers(reply)
         self.memory.add_assistant_message(reply)
         self.relationship_manager.on_assistant_reply()
         self.memory.save_memory()
@@ -547,11 +549,6 @@ class RoleplayBot:
                 reply_text=reply,
                 memory_snapshot=list(self.memory.memory),
             )
-
-        # ── 上轮关系变化提示（加在回复开头）──
-        pending = self.relationship_manager.take_pending_hints()
-        if pending:
-            reply = "（" + "；".join(pending) + "）\n\n" + reply
 
         return reply
 

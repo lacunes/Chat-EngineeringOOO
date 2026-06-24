@@ -8,6 +8,8 @@ import json
 import logging
 import re
 import threading
+from copy import deepcopy
+from datetime import datetime, timezone
 
 from config import prompts, settings
 
@@ -37,7 +39,10 @@ class RelationshipManager:
         self.characters: list[str] = []
         self.relations: dict[str, dict] = {}       # "角色A->角色B": {...}
         self._reply_count_since_extract: int = 0   # 距上次抽取的 AI 回复数
-        self._pending_hints: list[str] = []         # 待追加到下一条回复的变化提示
+        self.revision: int = 0
+        self.last_modified_source: str = "load"
+        self.last_modified_at: str = ""
+        self.last_change: dict | None = None
 
         self._load()
 
@@ -54,6 +59,10 @@ class RelationshipManager:
             self.characters = data.get("characters", [])
             self.relations = data.get("relations", {})
             self._reply_count_since_extract = data.get("_reply_count_since_extract", 0)
+            self.revision = max(0, int(data.get("revision", 0)))
+            self.last_modified_source = data.get("last_modified_source", "load")
+            self.last_modified_at = data.get("last_modified_at", "")
+            self.last_change = data.get("last_change")
             logger.info(
                 "Loaded relationships for '%s': %d chars, %d relations",
                 self.world_name, len(self.characters), len(self.relations),
@@ -67,11 +76,128 @@ class RelationshipManager:
 
     def _atomic_write(self) -> None:
         from bot.safe_io import atomic_write_json
-        atomic_write_json(self.file_path, {
+        payload = {
             "characters": self.characters,
             "relations": self.relations,
             "_reply_count_since_extract": self._reply_count_since_extract,
-        })
+            "revision": self.revision,
+            "last_modified_source": self.last_modified_source,
+            "last_modified_at": self.last_modified_at,
+            "last_change": self.last_change,
+        }
+        atomic_write_json(self.file_path, payload)
+        self._assert_persisted_consistency(payload)
+
+    def _assert_persisted_consistency(self, expected: dict) -> None:
+        """写入后立即验证内存、JSON 和下一轮 Prompt 的数据源一致。"""
+        if not self.file_path.exists():
+            if not expected.get("characters") and not expected.get("relations") and expected.get("revision", 0) == 0:
+                return
+            raise RuntimeError("Relationship persistence mismatch: JSON file missing")
+        persisted = json.loads(self.file_path.read_text(encoding="utf-8"))
+        for key in ("characters", "relations", "revision"):
+            if persisted.get(key) != expected.get(key):
+                raise RuntimeError(f"Relationship persistence mismatch: {key}")
+
+    def get_debug_info(self) -> dict:
+        """返回关系页面使用的只读调试信息。"""
+        with self._lock:
+            consistency_ok = True
+            consistency_error = ""
+            try:
+                expected = {
+                    "characters": self.characters,
+                    "relations": self.relations,
+                    "revision": self.revision,
+                }
+                self._assert_persisted_consistency(expected)
+            except Exception as exc:
+                consistency_ok = False
+                consistency_error = str(exc)
+            return {
+                "world": self.world_name,
+                "instance_id": f"RelationshipManager@{id(self):x}",
+                "revision": self.revision,
+                "json_path": str(self.file_path),
+                "last_modified_source": self.last_modified_source,
+                "last_modified_at": self.last_modified_at or "--",
+                "last_change": deepcopy(self.last_change),
+                "prompt_summary": self.get_summary(),
+                "consistency_ok": consistency_ok,
+                "consistency_error": consistency_error,
+            }
+
+    def warn_if_reply_exposes_relation_numbers(self, reply: str) -> list[str]:
+        """检测明确的关系面板式数字表达；只记录警告，不改写正文。"""
+        matches = [match.group(0) for match in _RELATION_NUMBER_PATTERN.finditer(reply)]
+        if matches:
+            logger.warning(
+                "Relation numeric disclosure detected world=%s matches=%s",
+                self.world_name, " | ".join(matches[:5]),
+            )
+        return matches
+
+    def snapshot_state(self) -> dict:
+        """为 Web 手动修改建立事务前快照。"""
+        with self._lock:
+            return {
+                "characters": deepcopy(self.characters),
+                "relations": deepcopy(self.relations),
+                "reply_count": self._reply_count_since_extract,
+                "revision": self.revision,
+                "last_modified_source": self.last_modified_source,
+                "last_modified_at": self.last_modified_at,
+                "last_change": deepcopy(self.last_change),
+            }
+
+    def commit_web_manual_change(self, before_state: dict, action: str) -> list[dict]:
+        """提交已在锁内完成的 Web 修改，并统一更新版本、日志和 JSON。"""
+        with self._lock:
+            state_changed = (
+                before_state["characters"] != self.characters
+                or before_state["relations"] != self.relations
+                or before_state["reply_count"] != self._reply_count_since_extract
+            )
+            if not state_changed:
+                return []
+
+            records = _build_dimension_change_records(
+                before_state["relations"], self.relations, source="web_manual",
+            )
+            previous_metadata = (
+                self.revision,
+                self.last_modified_source,
+                self.last_modified_at,
+                deepcopy(self.last_change),
+            )
+            self.revision += 1
+            self.last_modified_source = "web_manual"
+            self.last_modified_at = _utc_now()
+            self.last_change = records[-1] if records else {"action": action}
+            try:
+                self.save()
+            except Exception:
+                self.characters = deepcopy(before_state["characters"])
+                self.relations = deepcopy(before_state["relations"])
+                self._reply_count_since_extract = before_state["reply_count"]
+                (
+                    self.revision,
+                    self.last_modified_source,
+                    self.last_modified_at,
+                    self.last_change,
+                ) = previous_metadata
+                raise
+
+            if records:
+                _log_relation_change_records(
+                    self.world_name, records, source="web_manual", operator="web",
+                )
+            else:
+                logger.info(
+                    "[RELATION_CHANGE] world=%s source=web_manual action=%s operator=web revision=%d",
+                    self.world_name, action, self.revision,
+                )
+            return records
 
     # ═══════════════════════════════════════════════════════
     # 查询
@@ -162,12 +288,16 @@ class RelationshipManager:
 
     def reset(self) -> None:
         """清空当前世界的关系网络。"""
-        self.characters = []
-        self.relations = {}
-        self._reply_count_since_extract = 0
-        self._pending_hints = []
-        self.save()
-        logger.info("Relationship network reset for world '%s'", self.world_name)
+        with self._lock:
+            self.characters = []
+            self.relations = {}
+            self._reply_count_since_extract = 0
+            self.revision += 1
+            self.last_modified_source = "reset"
+            self.last_modified_at = _utc_now()
+            self.last_change = {"action": "reset"}
+            self.save()
+            logger.info("Relationship network reset for world '%s'", self.world_name)
 
     def _resolve_name(self, name: str) -> str:
         """尝试将昵称变体匹配到已有角色名。
@@ -194,17 +324,47 @@ class RelationshipManager:
     # 不纳入关系网络的名称（玩家角色、通用称呼等）
     _IGNORED_NAMES: set[str] = {"用户", "玩家", "我", "你", "他", "她", "它"}
 
-    def apply_changes(self, changes: list[dict], message_index: int) -> list[str]:
-        """应用抽取出的关系变化，返回需显示的提示文本列表。
+    def apply_changes(
+        self,
+        changes: list[dict],
+        message_index: int,
+        *,
+        expected_revision: int | None = None,
+        extraction_metadata: dict | None = None,
+    ) -> list[dict] | None:
+        """应用抽取出的 delta，返回逐维度变更记录；过时结果返回 None。
 
         持有 _lock 全程保护，防止与 Web 面板并发保存冲突。
         修改前创建快照，异常时自动回滚。
         变更后通过 EventBus 发射 relationship_changed 事件。
         """
-        hints: list[str] = []
         with self._lock:
-            # ── 回滚保护：修改前快照 ──
-            snapshot = _snapshot_relations(self.relations)
+            logger.info(
+                "[RELATION_APPLY] world=%s base_relation_version=%s "
+                "current_relation_version=%d message_range=%s",
+                self.world_name,
+                expected_revision if expected_revision is not None else "none",
+                self.revision,
+                (extraction_metadata or {}).get("message_range", "unknown"),
+            )
+            if expected_revision is not None and expected_revision != self.revision:
+                logger.warning(
+                    "stale relation extraction discarded world=%s base_relation_version=%d "
+                    "current_relation_version=%d message_range=%s",
+                    self.world_name, expected_revision, self.revision,
+                    (extraction_metadata or {}).get("message_range", "unknown"),
+                )
+                return None
+
+            snapshot = deepcopy(self.relations)
+            characters_snapshot = list(self.characters)
+            metadata_snapshot = (
+                self.revision,
+                self.last_modified_source,
+                self.last_modified_at,
+                deepcopy(self.last_change),
+            )
+            records: list[dict] = []
 
             try:
                 for change in changes:
@@ -228,70 +388,76 @@ class RelationshipManager:
                     delta = change.get("changes", {})
                     note = change.get("note", "")
 
-                    significant = False
-                    change_parts: list[str] = []
                     for dim in DIMENSION_LABELS:
                         if dim in delta:
-                            old = rel[dim]
-                            if old >= self.DEADLOCK_THRESHOLD or old <= self.DEADLOCK_LOWER:
+                            before_value = rel[dim]
+                            if before_value >= self.DEADLOCK_THRESHOLD or before_value <= self.DEADLOCK_LOWER:
                                 # 死锁维度：手动设为 110/-100 后不再自动变化
                                 continue
-                            d = int(delta[dim])
-                            if d == 0:
+                            requested_delta = int(delta[dim])
+                            if requested_delta == 0:
                                 continue
-                            new = max(0, min(100, old + d))
-                            actual_d = new - old
-                            if actual_d == 0:
+                            after_value = max(0, min(100, before_value + requested_delta))
+                            actual_delta = after_value - before_value
+                            if actual_delta == 0:
                                 continue
-                            rel[dim] = new
-                            sign = "+" if actual_d > 0 else ""
-                            change_parts.append(f"{DIMENSION_LABELS[dim]}{sign}{actual_d}")
-                            if abs(actual_d) > settings.RELATION_SIGNIFICANT_THRESHOLD:
-                                significant = True
+                            rel[dim] = after_value
+                            records.append({
+                                "pair": f"{from_char}→{to_char}",
+                                "dimension": dim,
+                                "before_value": before_value,
+                                "delta": actual_delta,
+                                "after_value": after_value,
+                                "reason": note,
+                                "trigger_message_index": message_index,
+                            })
 
-                    if change_parts:
+                    if any(record["pair"] == f"{from_char}→{to_char}" for record in records):
                         rel["last_updated"] = message_index
                         if note and note not in rel["notes"]:
                             rel["notes"].append(note)
                             if len(rel["notes"]) > 10:
                                 rel["notes"] = rel["notes"][-10:]
 
-                        hint = f"{from_char}→{to_char}：{', '.join(change_parts)}"
-                        if significant:
-                            hint += " ⚡"
-                        hints.append(hint)
+                if records:
+                    self.revision += 1
+                    self.last_modified_source = "auto_extract"
+                    self.last_modified_at = _utc_now()
+                    self.last_change = deepcopy(records[-1])
+                    self.save()
 
             except Exception:
-                # ── 回滚：恢复修改前的快照 ──
                 logger.error(
                     "Relation apply_changes failed, rolling back to snapshot (%d keys)",
                     len(snapshot), exc_info=True,
                 )
-                self.relations = {
-                    key: self._empty_relation()
-                    for key in snapshot
-                }
-                for key, dims in snapshot.items():
-                    for d, v in dims.items():
-                        if key in self.relations:
-                            self.relations[key][d] = v
-                # 不保存，不回滚文件（磁盘上保留最后一次成功的版本）
+                self.relations = snapshot
+                self.characters = characters_snapshot
+                (
+                    self.revision,
+                    self.last_modified_source,
+                    self.last_modified_at,
+                    self.last_change,
+                ) = metadata_snapshot
                 return []
 
-            if changes and hints:
-                self.save()
-                # ── 发射事件 ──
+            if records:
+                _log_relation_change_records(
+                    self.world_name, records, source="auto_extract",
+                    extraction_metadata=extraction_metadata,
+                )
                 if self._event_bus:
                     try:
                         self._event_bus.emit(
                             "relationship_changed",
                             world_id=self.world_name,
                             changes=changes,
-                            hints=hints,
+                            applied_changes=records,
+                            revision=self.revision,
                         )
                     except Exception as exc:
                         logger.debug("EventBus emit relationship_changed failed: %s", exc)
-        return hints
+        return records
 
     # ═══════════════════════════════════════════════════════
     # 自动抽取
@@ -303,12 +469,6 @@ class RelationshipManager:
 
     def _should_extract(self) -> bool:
         return self._reply_count_since_extract >= settings.RELATION_EXTRACT_INTERVAL
-
-    def take_pending_hints(self) -> list[str]:
-        """取出待显示的变化提示并清空缓存。"""
-        hints = self._pending_hints
-        self._pending_hints = []
-        return hints
 
     async def auto_extract(self, memory: list[dict], client) -> None:
         """每 N 轮 AI 回复后自动抽取关系变化。"""
@@ -337,6 +497,21 @@ class RelationshipManager:
                 logger.info("Relation extract: bootstrap mode (only %d chars known)", len(self.characters))
 
         dialogue = _format_dialogue_for_extraction(recent)
+        extraction_started_at = _utc_now()
+        with self._lock:
+            base_relation_version = self.revision
+        first_message = recent[0] if recent else {}
+        last_message = recent[-1] if recent else {}
+        message_range = (
+            f"{first_message.get('id', 'index-' + str(max(0, len(memory) - len(recent))))}"
+            f"..{last_message.get('id', 'index-' + str(max(0, len(memory) - 1)))}"
+        )
+        logger.info(
+            "[RELATION_EXTRACTION] world=%s extraction_started_at=%s message_range=%s "
+            "message_count=%d base_relation_version=%d trigger=%s",
+            self.world_name, extraction_started_at, message_range, len(recent),
+            base_relation_version, trigger_reason,
+        )
 
         try:
             result, _ = await client.chat(
@@ -349,24 +524,40 @@ class RelationshipManager:
                 purpose="relation_extract",
             )
             changes = _parse_relation_json(result)
+            extraction_finished_at = _utc_now()
+            extraction_metadata = {
+                "extraction_started_at": extraction_started_at,
+                "extraction_finished_at": extraction_finished_at,
+                "message_range": message_range,
+                "base_relation_version": base_relation_version,
+            }
+            logger.info(
+                "[RELATION_EXTRACTION] world=%s extraction_finished_at=%s message_range=%s "
+                "base_relation_version=%d current_relation_version=%d parsed_change_groups=%d",
+                self.world_name, extraction_finished_at, message_range,
+                base_relation_version, self.revision, len(changes),
+            )
             if changes:
                 msg_idx = len(memory)
-                # 记录变化前数值供日志使用
-                before_snapshot = _snapshot_relations(self.relations)
-                hints = self.apply_changes(changes, msg_idx)
-                if hints:
-                    self._pending_hints.extend(hints)
-                    after_snapshot = _snapshot_relations(self.relations)
+                applied_changes = self.apply_changes(
+                    changes,
+                    msg_idx,
+                    expected_revision=base_relation_version,
+                    extraction_metadata=extraction_metadata,
+                )
+                if applied_changes is None:
                     logger.info(
-                        "Relation extraction [%s]: %d changes → %d hints. Details: %s",
-                        trigger_reason, len(changes), len(hints),
-                        ", ".join(hints),
+                        "Relation extraction [%s]: stale result discarded",
+                        trigger_reason,
                     )
-                    # 输出具体数值变化
-                    _log_relation_deltas(before_snapshot, after_snapshot)
+                elif applied_changes:
+                    logger.info(
+                        "Relation extraction [%s]: %d change groups → %d dimension changes",
+                        trigger_reason, len(changes), len(applied_changes),
+                    )
                 else:
                     logger.info(
-                        "Relation extraction [%s]: %d changes parsed but 0 hints applied (may be deadlocked)",
+                        "Relation extraction [%s]: %d changes parsed but 0 deltas applied (may be deadlocked)",
                         trigger_reason, len(changes),
                     )
             else:
@@ -375,7 +566,13 @@ class RelationshipManager:
                     trigger_reason,
                 )
         except Exception as exc:
-            logger.warning("Relation extraction failed [%s]: %s", trigger_reason, exc)
+            logger.warning(
+                "Relation extraction failed [%s]: %s extraction_started_at=%s "
+                "extraction_finished_at=%s message_range=%s base_relation_version=%d "
+                "current_relation_version=%d",
+                trigger_reason, exc, extraction_started_at, _utc_now(), message_range,
+                base_relation_version, self.revision,
+            )
         finally:
             self._reply_count_since_extract = 0
             self.save()
@@ -452,18 +649,83 @@ def _snapshot_relations(relations: dict) -> dict[str, dict]:
     return snap
 
 
-def _log_relation_deltas(before: dict, after: dict) -> None:
-    """输出关系变化前后数值对比日志。"""
-    all_keys = set(before.keys()) | set(after.keys())
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _display_pair(key: str) -> str:
+    return key.replace("->", "→", 1)
+
+
+def _build_dimension_change_records(
+    before_relations: dict,
+    after_relations: dict,
+    *,
+    source: str,
+) -> list[dict]:
+    """根据前后状态生成明确区分 before/delta/after 的逐维度记录。"""
+    records: list[dict] = []
+    all_keys = set(before_relations) | set(after_relations)
     for key in sorted(all_keys):
-        b = before.get(key, {})
-        a = after.get(key, {})
-        changed_dims = []
-        for dim in ["affection", "trust", "fear", "dependence", "suspicion", "hostility"]:
-            bv = b.get(dim, 0)
-            av = a.get(dim, 0)
-            if bv != av:
-                sign = "+" if av > bv else ""
-                changed_dims.append(f"{dim}: {bv}→{av} ({sign}{av - bv})")
-        if changed_dims:
-            logger.info("  Relation delta [%s]: %s", key, "; ".join(changed_dims))
+        before = before_relations.get(key, {})
+        after = after_relations.get(key, {})
+        for dimension in DIMENSION_LABELS:
+            before_value = int(before.get(dimension, 0))
+            after_value = int(after.get(dimension, 0))
+            if before_value == after_value:
+                continue
+            records.append({
+                "pair": _display_pair(key),
+                "dimension": dimension,
+                "before_value": before_value,
+                "delta": after_value - before_value,
+                "after_value": after_value,
+                "reason": "",
+                "source": source,
+            })
+    return records
+
+
+def _safe_log_text(value: object) -> str:
+    return str(value or "-").replace("\r", " ").replace("\n", " ")[:300]
+
+
+def _log_relation_change_records(
+    world_name: str,
+    records: list[dict],
+    *,
+    source: str,
+    operator: str | None = None,
+    extraction_metadata: dict | None = None,
+) -> None:
+    """按一行一维度写入 relation.log，便于审计与检索。"""
+    metadata = extraction_metadata or {}
+    for record in records:
+        delta = int(record["delta"])
+        fields = [
+            "[RELATION_CHANGE]",
+            f"world={_safe_log_text(world_name)}",
+            f"source={source}",
+            f"pair={_safe_log_text(record['pair'])}",
+            f"dimension={record['dimension']}",
+            f"before={record['before_value']}",
+            f"delta={delta:+d}",
+            f"after={record['after_value']}",
+        ]
+        if source == "auto_extract":
+            fields.extend([
+                f"reason={_safe_log_text(record.get('reason'))}",
+                f"trigger_message_index={record.get('trigger_message_index', '-')}",
+                f"message_range={_safe_log_text(metadata.get('message_range'))}",
+                f"base_relation_version={metadata.get('base_relation_version', '-')}",
+            ])
+        if operator:
+            fields.append(f"operator={operator}")
+        logger.info(" ".join(fields))
+
+
+_RELATION_NUMBER_PATTERN = re.compile(
+    r"(?:当前)?(?:好感|信任|畏惧|依赖|怀疑|敌意)(?:度|值)?"
+    r"\s*(?:已经|已)?\s*(?:达到|变为|为|是|增加|减少|上升|下降|[:：=])?"
+    r"\s*[+\-]?\d+(?:\.\d+)?"
+)

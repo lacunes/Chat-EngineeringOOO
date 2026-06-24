@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import tempfile
+from copy import deepcopy
 
 import pytest
 
@@ -44,6 +45,10 @@ def _create_test_app():
             self.relations = dict(initial["relations"])
             self._lock = threading.Lock()
             self._reply_count_since_extract = 0
+            self.revision = 0
+            self.last_modified_source = "load"
+            self.last_modified_at = ""
+            self.last_change = None
 
         @staticmethod
         def _empty_relation():
@@ -62,6 +67,35 @@ def _create_test_app():
             with open(relations_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
+        def snapshot_state(self):
+            return {
+                "characters": deepcopy(self.characters),
+                "relations": deepcopy(self.relations),
+                "reply_count": self._reply_count_since_extract,
+            }
+
+        def commit_web_manual_change(self, before_state, action):
+            if (before_state["characters"] != self.characters
+                    or before_state["relations"] != self.relations
+                    or before_state["reply_count"] != self._reply_count_since_extract):
+                self.revision += 1
+                self.save()
+            return []
+
+        def get_debug_info(self):
+            return {
+                "world": "test_world",
+                "instance_id": "RelationshipManager@test",
+                "revision": self.revision,
+                "json_path": relations_path,
+                "last_modified_source": self.last_modified_source,
+                "last_modified_at": self.last_modified_at or "--",
+                "last_change": self.last_change,
+                "prompt_summary": "[当前角色关系]\n- Alice->Bob：好感50",
+                "consistency_ok": True,
+                "consistency_error": "",
+            }
+
     stub_rm = _StubRM()
 
     # 创建 Fake AppContext，注入 app.config["ctx"]
@@ -72,6 +106,7 @@ def _create_test_app():
         relationship_manager = stub_rm
         world = _FakeWorld()
         start_time = 0  # for inject_globals
+        client = type("_FakeClient", (), {"router": None})()
 
     # 创建最小 Flask 应用
     from flask import Flask
@@ -97,6 +132,17 @@ def _create_test_app():
         ctx = app.config.get("ctx")
         return {"ctx": ctx, "uptime": "--"}
 
+    # base.html 导航依赖的其他蓝图端点；本测试只注册关系蓝图，因此补最小占位。
+    for index, endpoint in enumerate([
+        "auth.logout", "config_center.index", "dashboard.index", "logs.index",
+        "memory_audit.index", "memory.short_memory", "providers.index",
+        "time_routes.index", "worlds.list_worlds",
+    ]):
+        app.add_url_rule(
+            f"/__test_endpoint_{index}", endpoint=endpoint,
+            view_func=lambda: "", methods=["GET"],
+        )
+
     from web.routes.relations import relations_bp
     app.register_blueprint(relations_bp)
 
@@ -105,6 +151,16 @@ def _create_test_app():
 
 class TestRelationsSave:
     """测试关系保存 API 的维度值正确性。"""
+
+    def test_debug_view_uses_current_manager_state(self):
+        app, stub_rm, _ = _create_test_app()
+        with app.test_client() as client:
+            with client.session_transaction() as sess:
+                sess["logged_in"] = True
+            response = client.get("/relations/")
+        assert response.status_code == 200
+        assert b"RelationshipManager@test" in response.data
+        assert b"Revision" in response.data
 
     def test_save_preserves_all_dimensions(self):
         """保存后 6 个维度值应与提交值一致，无归零。"""

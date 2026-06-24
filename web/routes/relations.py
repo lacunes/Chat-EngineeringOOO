@@ -29,12 +29,17 @@ DIM_LABELS = [
 def index():
     ctx = _ctx()
     rm = ctx.relationship_manager
+    debug_info = rm.get_debug_info()
 
     if request.args.get("mode") == "raw":
         data = {
             "characters": rm.characters,
             "relations": rm.relations,
             "_reply_count_since_extract": rm._reply_count_since_extract,
+            "revision": rm.revision,
+            "last_modified_source": rm.last_modified_source,
+            "last_modified_at": rm.last_modified_at,
+            "last_change": rm.last_change,
         }
         json_text = json.dumps(data, ensure_ascii=False, indent=2)
         return render_template("relations.html",
@@ -43,6 +48,7 @@ def index():
                                raw_mode=True,
                                json_text=json_text,
                                error=None,
+                               debug_info=debug_info,
                                ctx=ctx)
 
     return render_template("relations.html",
@@ -50,6 +56,7 @@ def index():
                            dim_labels=DIM_LABELS,
                            raw_mode=False,
                            error=None,
+                           debug_info=debug_info,
                            ctx=ctx)
 
 
@@ -65,12 +72,17 @@ def save():
             data = json.loads(content)
             if not isinstance(data, dict):
                 raise ValueError("JSON 必须是对象")
-            ctx.relationship_manager.characters = data.get("characters", [])
-            ctx.relationship_manager.relations = data.get("relations", {})
-            ctx.relationship_manager._reply_count_since_extract = data.get(
-                "_reply_count_since_extract", 0,
-            )
-            ctx.relationship_manager.save()
+            if not isinstance(data.get("characters", []), list):
+                raise ValueError("characters 必须是数组")
+            if not isinstance(data.get("relations", {}), dict):
+                raise ValueError("relations 必须是对象")
+            rm = ctx.relationship_manager
+            with rm._lock:
+                before_state = rm.snapshot_state()
+                rm.characters = data.get("characters", [])
+                rm.relations = data.get("relations", {})
+                rm._reply_count_since_extract = data.get("_reply_count_since_extract", 0)
+                rm.commit_web_manual_change(before_state, action="raw_save")
             audit_log("编辑关系", "JSON 模式")
             return _flash_redirect(url_for("relations.index"), "关系网络已保存")
         except (json.JSONDecodeError, ValueError) as exc:
@@ -81,6 +93,7 @@ def save():
                                    raw_mode=True,
                                    json_text=json_text,
                                    error=f"JSON 格式错误: {exc}",
+                                   debug_info=ctx.relationship_manager.get_debug_info(),
                                    ctx=ctx)
 
     # 结构化模式 — 增量更新，不清除 AI 自动抽取的关系
@@ -88,6 +101,7 @@ def save():
     rm = ctx.relationship_manager
 
     with rm._lock:
+        before_state = rm.snapshot_state()
         # 从现有关系出发，不清除不在表单中的关系（如 AI 抽取的新角色对）
         form_keys: set[str] = set()
 
@@ -149,7 +163,7 @@ def save():
                 chars.add(parts[1].strip())
         rm.characters = sorted(chars)
 
-        rm.save()
+        rm.commit_web_manual_change(before_state, action="structured_save")
 
     audit_log("编辑关系", f"结构化模式（{len(form_keys)} 个角色对）")
     logger.info("Web panel: saved relationships (structured) for %s: %d pairs",
