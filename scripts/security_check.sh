@@ -70,9 +70,7 @@ check_gitignore() {
     if grep -qF "$pattern" .gitignore 2>/dev/null; then
         pass ".gitignore 包含规则: $desc"
     else
-        warn ".gitignore 缺少规则: $desc — 将自动追加"
-        echo "$pattern" >> .gitignore
-        pass "已自动追加: $desc → .gitignore"
+        warn ".gitignore 缺少规则: $desc — 请在确认后手动补充"
     fi
 }
 check_gitignore ".env"           ".env"
@@ -97,7 +95,7 @@ PATTERNS=(
     "ALLOWED_ID\s*=\s*[0-9]\{5,\}"
 )
 # 排除目录
-EXCLUDE_DIRS=".git|venv|.venv|node_modules|__pycache__|.pytest_cache|.mypy_cache|.ruff_cache|.idea|.vscode|logs|memory"
+EXCLUDE_DIRS=".git|venv|.venv|node_modules|__pycache__|.pytest_cache|.mypy_cache|.ruff_cache|.idea|.vscode|logs|memory|data/state"
 
 SCAN_FOUND=0
 for pattern in "${PATTERNS[@]}"; do
@@ -115,6 +113,7 @@ for pattern in "${PATTERNS[@]}"; do
         -not -path "*/.mypy_cache/*" \
         -not -path "*/logs/*" \
         -not -path "*/memory/*" \
+        -not -path "*/data/state/*" \
         2>/dev/null | head -20)
 
     if [ -n "$matches" ]; then

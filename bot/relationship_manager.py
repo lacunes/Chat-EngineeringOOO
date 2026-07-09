@@ -12,6 +12,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 
 from config import prompts, settings
+from bot.state_paths import state_path
 
 
 logger = logging.getLogger("bot.relation")
@@ -30,9 +31,8 @@ class RelationshipManager:
     """管理当前世界的关系网络。"""
 
     def __init__(self, world_name: str, event_bus=None):
-        settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         self.world_name = world_name
-        self.file_path = settings.MEMORY_DIR / f"{world_name}_relationships.json"
+        self.file_path = state_path(world_name, "relationships")
         self._lock = threading.RLock()
         self._event_bus = event_bus  # 可选：EventBus 实例，用于发射 relationship_changed 事件
 

@@ -10,6 +10,7 @@ __pycache__/
 memory/
 data/sessions/
 data/memory/
+data/state/
 logs/
 *.bak
 /关系网优化.txt
@@ -28,7 +29,6 @@ secrets.json
 *.env.backup.*
 backups/
 web_audit.log
-docs/
 .codegraph/
 .reasonix/
 更新记录/

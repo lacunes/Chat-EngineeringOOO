@@ -23,6 +23,11 @@ from config import prompts, settings
 logger = logging.getLogger(__name__)
 
 
+def should_send_memo_reminder(message_count: int, interval: int) -> bool:
+    """0 或负值明确表示关闭提醒，避免配置导致取模错误。"""
+    return interval > 0 and message_count > 0 and message_count % interval == 0
+
+
 def require_auth(func):
     """装饰器：自动检查用户授权，未授权则回复提示并跳过执行。"""
     @wraps(func)
@@ -58,7 +63,7 @@ class RoleplayBot:
         # NPC主动行为管理器 —— 如果世界文件未定义NPC则静默不工作
         self.npc_manager = NPCManager(world, self.memory)
         # 剧情状态管理器 —— 纯本地 JSON，不影响 API 调用频率
-        self.story_state = StoryStateManager(world.WORLD_NAME, settings.MEMORY_DIR)
+        self.story_state = StoryStateManager(world.WORLD_NAME)
         # 上下文选择器（v3：动态选择注入内容）
         self.context_selector = ContextSelector()
         # 防止后台记忆维护任务堆积
@@ -359,7 +364,7 @@ class RoleplayBot:
         )
 
         # 每隔 MEMO_REMINDER_INTERVAL 条消息提示一次用户手动记录长期记忆
-        if self.memory.message_count % settings.MEMO_REMINDER_INTERVAL == 0:
+        if should_send_memo_reminder(self.memory.message_count, settings.MEMO_REMINDER_INTERVAL):
             reply += (
                 "\n\n【记忆提醒】\n"
                 "最近剧情可能出现重要关系变化。\n"
@@ -474,45 +479,23 @@ class RoleplayBot:
             logger.warning("Context selector failed, using fallback: %s", exc)
             selection = None
 
-        # 构建半固定层：从选择结果中提取
-        long_term_parts: list[str] = []
+        # 构建半固定层：Selector 是唯一的数据来源，保证 State→Relationship→Fact。
+        long_term_text = None
         if selection:
-            # 角色设定
-            char_texts = [it.content for it in selection.character_context]
-            if char_texts:
-                long_term_parts.append("[相关角色]\n" + "\n".join(char_texts))
-            # 长期记忆
-            mem_texts = [it.content for it in selection.memory_context]
-            if mem_texts:
-                long_term_parts.append("[长期记忆]\n" + "\n".join(mem_texts))
-            # 关系
-            rel_texts = [it.content for it in selection.relationship_context]
-            if rel_texts:
-                long_term_parts.append("\n".join(rel_texts))
+            long_term_text = selection.build_prompt_context()
         else:
             # 安全回退：使用旧方式的纯文本列表（取最重要的记忆）
             if self.memory.long_memory:
                 recent = self.memory.long_memory[:settings.LONG_MEMORY_CONTEXT_LIMIT]
-                long_term_parts.append("[长期记忆]\n" + "\n".join(recent))
+                long_term_text = "[长期记忆]\n" + "\n".join(recent)
 
-        long_term_text = "\n".join(long_term_parts) if long_term_parts else None
-
-        # 3. 动态层：当前状态（NPC 指令、时间数据、导演指令）
+        # 3. 动态层：每轮都可能变化的 NPC 舞台指令和导演指令。
         dynamic_parts: list[str] = []
         if stage_directions:
             dynamic_parts.append(prompts.NPC_STAGE_DIRECTION_INSTRUCTION + "\n" + stage_directions)
 
         # 关系摘要（已移到半固定层，动态层不再重复）
         # relation_summary 已通过 context_selector 注入
-
-        time_summary = self.time_manager.get_summary()
-        dynamic_parts.append(time_summary)
-
-        # ── 注入剧情状态 ──
-        story_summary = self.story_state.get_summary()
-        if story_summary:
-            dynamic_parts.append(story_summary)
-            logger.debug("Story state injected into dynamic_state")
 
         directive = _load_runtime_directive()
         if directive.get("enabled"):

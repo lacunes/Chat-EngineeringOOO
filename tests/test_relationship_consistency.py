@@ -8,7 +8,8 @@ from config import settings
 
 
 def _manager(tmp_path, monkeypatch) -> RelationshipManager:
-    monkeypatch.setattr(settings, "MEMORY_DIR", tmp_path)
+    monkeypatch.setattr(settings, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(settings, "LEGACY_STATE_DIR", tmp_path / "legacy")
     return RelationshipManager("test_world")
 
 

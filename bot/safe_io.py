@@ -61,7 +61,12 @@ def backup_file(path: Path, backup_dir: Path | None = None) -> Path | None:
         return None
     try:
         if backup_dir is None:
-            backup_dir = path.parent.parent / "backups"
+            # 根目录配置备份到项目内；数据文件沿用同级数据目录的备份约定。
+            from config import settings
+            if path.parent.resolve() == settings.BASE_DIR.resolve():
+                backup_dir = settings.BASE_DIR / "backups"
+            else:
+                backup_dir = path.parent.parent / "backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
         ts = _backup_timestamp()
         stem = path.stem

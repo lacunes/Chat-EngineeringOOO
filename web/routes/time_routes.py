@@ -51,7 +51,7 @@ def index():
     directive = _load_directive()
 
     # 读取剧情状态
-    story_mgr = StoryStateManager(ctx.world.WORLD_NAME, settings.MEMORY_DIR)
+    story_mgr = StoryStateManager(ctx.world.WORLD_NAME)
     story_state = story_mgr.state
 
     return render_template(
@@ -98,7 +98,7 @@ def save():
         audit_log("编辑剧情节奏", f"阶段={directive['story_phase']}, 倾向={directive['next_tendency']}")
         return _flash_redirect(url_for("time_routes.index"), "剧情节奏指令已保存")
     elif action == "save_story_state":
-        story_mgr = StoryStateManager(ctx.world.WORLD_NAME, settings.MEMORY_DIR)
+        story_mgr = StoryStateManager(ctx.world.WORLD_NAME)
         updates = {
             "chapter": (request.form.get("ss_chapter") or "").strip(),
             "scene": (request.form.get("ss_scene") or "").strip(),

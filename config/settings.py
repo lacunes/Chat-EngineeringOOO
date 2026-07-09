@@ -53,8 +53,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 # 格式: "sk-" 开头。
 DEEPSEEK_KEY = os.getenv("DEEPSEEK_KEY", "").strip()
 
-# 允许使用 Bot 的 Telegram 用户 ID（数字）。
-# 设为 0 表示不限制（不安全！）。
+# 允许使用 Bot 的 Telegram 用户 ID（数字，必须设置为实际用户 ID）。
 # 获取自己的 ID: 给 @userinfobot 发消息。
 ALLOWED_ID = _get_int("ALLOWED_ID", 0)
 
@@ -180,7 +179,7 @@ AUTO_MEMORY_LOOKBACK = _get_int("AUTO_MEMORY_LOOKBACK", 32)
 # 设为 4 的原因：给新记忆留出累积空间，不要太频繁触发精炼 API 调用。
 # 调高 → 精炼间隔更长，API 调用更少但记忆列表更长。
 # 调低 → 精炼更频繁，记忆列表始终紧凑但 API 调用增加。
-LONG_MEMORY_REFINE_BUFFER = _get_int("LONG_MEMORY_REFINE_BUFFER", 20)
+LONG_MEMORY_REFINE_BUFFER = _get_int("LONG_MEMORY_REFINE_BUFFER", 4)
 LONG_MEMORY_EXTRACT_REQUIRE_SIGNAL = os.getenv("LONG_MEMORY_EXTRACT_REQUIRE_SIGNAL", "true").strip().lower() != "false"
 
 # ═══════════════════════════════════════════════════════════════
@@ -263,12 +262,19 @@ WEB_HOST = os.getenv("WEB_HOST", "0.0.0.0")
 # 留空则面板不设密码（不安全！强烈建议设置）。
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "").strip()
 
+# Web Session 独立签名密钥。必须使用高熵随机值，不能复用登录密码。
+WEB_SESSION_SECRET = os.getenv("WEB_SESSION_SECRET", "").strip()
+
 # ═══════════════════════════════════════════════════════════════
 # 文件路径配置
 # ═══════════════════════════════════════════════════════════════
 
 LOG_FILE = BASE_DIR / "logs" / "app.log"
-MEMORY_DIR = BASE_DIR / "memory"
+# 新运行状态统一存放于 data/state；保留旧 memory/ 只用于兼容迁移。
+STATE_DIR = BASE_DIR / "data" / "state"
+LEGACY_STATE_DIR = BASE_DIR / "memory"
+# 兼容第三方扩展的旧名称；项目内部新代码应使用 STATE_DIR/state_path。
+MEMORY_DIR = STATE_DIR
 
 # 分层日志路径
 LOG_DIR = BASE_DIR / "logs"

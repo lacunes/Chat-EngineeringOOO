@@ -55,20 +55,6 @@ _usage_lock = threading.Lock()
 _providers_config_lock = threading.RLock()  # 保护 providers.yaml 读写
 
 
-def _backup_providers_yaml(path: Path) -> None:
-    """备份 providers.yaml 到 backups/ 目录。"""
-    try:
-        backup_dir = path.parent.parent / "backups"
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = backup_dir / f"providers_{ts}.yaml"
-        import shutil
-        shutil.copy2(path, backup_path)
-        logger.debug("Backed up providers.yaml to %s", backup_path)
-    except Exception as e:
-        logger.warning("Failed to backup providers.yaml: %s", e)
-
-
 # ═══════════════════════════════════════════════════════════════
 # 状态持久化
 # ═══════════════════════════════════════════════════════════════

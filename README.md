@@ -25,6 +25,7 @@ Telegram Bot + Web 导演台 + Multi-provider LLM Router + 结构化长期记忆
 * **Web 管理面板**（浅色/暗色双主题，SVG图标系统）
 * **严格 CSP Web 交互**（脚本全部本地静态化，无 inline script / inline handler）
 * **轻量健康检查**（`/health`，不触发 Telegram 或模型 API）
+* Web 面板优先由 Waitress 承载（依赖缺失时明确告警并回退开发服务器）
 * 关系网络系统（6 维度）
 * 时间流逝系统（用户驱动）
 * 剧情节奏控制
@@ -79,6 +80,7 @@ runtime_state.json  ：只保存运行时选择（active_world）。
 provider_state.json ：只保存 provider 失败、冷却、耗尽、最近错误。
 data/sessions/*     ：短期聊天上下文。
 data/memory/*       ：结构化长期记忆（v3）+ 摘要。
+data/state/*        ：关系、时间与剧情运行状态（首次启动兼容迁移旧 memory/）。
 ```
 
 ---
@@ -138,6 +140,7 @@ project/
 │   ├── sessions/               # 短期记忆（{world}_chat.json）
 │   ├── memory/                 # 长期记忆（{world}_memories.json）+ 摘要
 │   ├── runtime_state.json      # 运行时状态
+│   ├── state/                  # 关系、时间、剧情运行状态
 │   └── provider_state.json     # 模型供应商运行时状态
 │
 ├── providers.yaml              # 多模型供应商配置
@@ -182,6 +185,9 @@ data/sessions/{world}_chat.json        — 短期聊天上下文
 data/memory/{world}_memories.json      — 结构化长期记忆（v3 新格式）
 data/memory/{world}_long_term.json     — 旧格式（首次加载时自动迁移）
 data/memory/{world}_summary.json       — 压缩摘要历史
+data/state/{world}_relationships.json  — 关系网络运行状态
+data/state/{world}_time_state.json     — 时间运行状态
+data/state/{world}_story_state.json    — 剧情运行状态
 ```
 
 ## 旧格式兼容
@@ -288,6 +294,7 @@ Web 面板定位为 **"角色扮演导演台"**。
 | WEB_PORT | Web 面板端口（默认 8080） |
 | WEB_HOST | Web 监听地址 |
 | WEB_PASSWORD | Web 面板登录密码 |
+| WEB_SESSION_SECRET | Web 会话独立签名密钥；公网监听时必须设置，不能复用登录密码 |
 
 完整配置项见 `config/settings.py` 注释。
 

@@ -593,26 +593,3 @@ def _validate_world_fields(data: dict) -> list[str]:
         errors.append("NPC 配置必须是 JSON 对象格式")
 
     return errors
-
-
-# ═══════════════════════════════════════════════════════════
-# 工具
-# ═══════════════════════════════════════════════════════════
-
-def _update_env(key: str, value: str) -> None:
-    """更新 .env 文件中的键值对，保留原有格式。"""
-    env_path = settings.BASE_DIR / ".env"
-    if not env_path.exists():
-        logger.warning(".env not found, cannot update %s", key)
-        return
-    lines = env_path.read_text(encoding="utf-8").splitlines()
-    found = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
-            lines[i] = f"{key}={value}"
-            found = True
-            break
-    if not found:
-        lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

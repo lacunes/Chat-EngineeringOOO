@@ -10,6 +10,7 @@ import threading
 import time as _time
 
 from config import prompts, settings
+from bot.state_paths import state_path
 
 
 logger = logging.getLogger(__name__)
@@ -45,9 +46,8 @@ class TimeManager:
     """管理当前世界的时间状态。"""
 
     def __init__(self, world_name: str):
-        settings.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
         self.world_name = world_name
-        self.file_path = settings.MEMORY_DIR / f"{world_name}_time_state.json"
+        self.file_path = state_path(world_name, "time_state")
         self._lock = threading.Lock()
 
         self.day: int = 1

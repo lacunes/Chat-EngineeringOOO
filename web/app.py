@@ -5,7 +5,6 @@ Session 登录 + CSRF 保护 + 安全响应头 + 操作审计日志。
 """
 
 import functools
-import hashlib
 import logging
 import secrets
 import time
@@ -123,14 +122,13 @@ def create_app(ctx: AppContext) -> Flask:
     app = Flask(__name__)
     app.config["ctx"] = ctx
 
-    # Session 签名密钥（基于 WEB_PASSWORD 派生，重启后保持不变）
-    if settings.WEB_PASSWORD:
-        app.secret_key = hashlib.sha256(
-            (settings.WEB_PASSWORD + "roleplay-web-session-salt-v2").encode()
-        ).hexdigest()
+    # Session 签名密钥必须与登录密码独立，避免 Cookie 成为离线猜密码的校验器。
+    if settings.WEB_SESSION_SECRET:
+        app.secret_key = settings.WEB_SESSION_SECRET
     else:
-        # 无密码时每次重启生成新密钥（session 在重启后失效）
+        # 仅允许本地开发回退；公网监听由 main.validate_settings() 拒绝启动。
         app.secret_key = secrets.token_hex(32)
+        logger.warning("WEB_SESSION_SECRET is not set; web sessions will be invalidated on restart")
 
     # Session Cookie 安全配置
     app.config["SESSION_COOKIE_HTTPONLY"] = True

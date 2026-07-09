@@ -43,7 +43,7 @@ def _load_runtime_state() -> dict:
 
 def _save_runtime_state(state: dict) -> None:
     """原子保存 runtime_state.json。"""
-    from bot.safe_io import atomic_write_json, backup_file
+    from bot.safe_io import atomic_write_json
     path = _runtime_state_path()
     with _lock:
         atomic_write_json(path, state)

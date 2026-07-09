@@ -62,6 +62,29 @@ class SelectionResult:
     budgets: dict[str, Budget] = field(default_factory=dict)
     total_tokens: int = 0
 
+    def build_prompt_context(self) -> str | None:
+        """按 State → Relationship → Fact 顺序生成半固定 prompt 内容。"""
+        state_items = (
+            self.time_context
+            + self.story_context
+            + [item for item in self.memory_context if item.source == "state"]
+        )
+        fact_items = (
+            self.world_context
+            + self.character_context
+            + [item for item in self.memory_context if item.source != "state"]
+        )
+        sections = []
+        for title, items in (
+            ("状态", state_items),
+            ("关系", self.relationship_context),
+            ("事实", fact_items),
+        ):
+            content = "\n".join(item.content for item in items if item.content)
+            if content:
+                sections.append(f"[{title}]\n{content}")
+        return "\n\n".join(sections) or None
+
 
 # ═══════════════════════════════════════════════════════════════
 # ContextSelector

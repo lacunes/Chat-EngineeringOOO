@@ -26,7 +26,6 @@ from bot.relationship_manager import RelationshipManager
 from bot.telegram_handlers import RoleplayBot
 from bot.time_manager import TimeManager
 from bot.world_manager import WorldManager
-from bot.utils import load_world
 from config import settings
 from web.app import AppContext, create_app
 
@@ -207,6 +206,11 @@ def validate_settings() -> None:
             "WEB_HOST=0.0.0.0 但未设置 WEB_PASSWORD。\n"
             "公网监听时必须在 .env 中设置 WEB_PASSWORD 以保护管理面板。"
         )
+    if settings.WEB_HOST == "0.0.0.0" and not settings.WEB_SESSION_SECRET:
+        raise RuntimeError(
+            "WEB_HOST=0.0.0.0 但未设置 WEB_SESSION_SECRET。\n"
+            "请在 .env 中设置独立的高熵随机会话密钥。"
+        )
 
 
 # ── 命令注册表 ──
@@ -328,6 +332,23 @@ async def error_handler(update: object | None, context: ContextTypes.DEFAULT_TYP
             pass
 
 
+def run_web_server(web_app) -> None:
+    """优先使用生产 WSGI 服务器；依赖缺失时保留明确的开发回退。"""
+    logger = logging.getLogger(__name__)
+    try:
+        from waitress import serve
+    except ImportError:
+        logger.warning("waitress is not installed; falling back to Flask development server")
+        web_app.run(
+            host=settings.WEB_HOST,
+            port=settings.WEB_PORT,
+            debug=False,
+            use_reloader=False,
+        )
+        return
+    serve(web_app, host=settings.WEB_HOST, port=settings.WEB_PORT, threads=4)
+
+
 def main() -> None:
     setup_logging()
     logger = logging.getLogger(__name__)
@@ -403,12 +424,8 @@ def main() -> None:
     # ── 启动 Web 管理面板（守护线程）──
     web_app = create_app(ctx)
     threading.Thread(
-        target=lambda: web_app.run(
-            host=settings.WEB_HOST,
-            port=settings.WEB_PORT,
-            debug=False,
-            use_reloader=False,
-        ),
+        target=run_web_server,
+        args=(web_app,),
         daemon=True,
         name="web-panel",
     ).start()

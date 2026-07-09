@@ -7,7 +7,6 @@
 import json
 import logging
 import threading
-from pathlib import Path
 
 logger = logging.getLogger("bot.story")
 
@@ -29,8 +28,9 @@ DEFAULT_STORY_STATE = {
 class StoryStateManager:
     """管理当前世界的剧情状态（story_state.json）。"""
 
-    def __init__(self, world_name: str, memory_dir: Path):
-        self.file_path = memory_dir / f"{world_name}_story_state.json"
+    def __init__(self, world_name: str):
+        from bot.state_paths import state_path
+        self.file_path = state_path(world_name, "story_state")
         self._lock = threading.Lock()
         self.state: dict = dict(DEFAULT_STORY_STATE)
         self._load()
