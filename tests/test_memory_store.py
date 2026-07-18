@@ -1,9 +1,5 @@
 """MemoryStore 测试 — 旧格式迁移、损坏文件保护、备份。"""
 
-import json
-import os
-
-
 class TestMemoryMigration:
     """旧格式迁移测试。"""
 

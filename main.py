@@ -21,10 +21,7 @@ from telegram.ext import (
 from bot.deepseek_client import DeepSeekClient
 from bot.event_bus import EventBus
 from bot.llm_router import LLMRouter
-from bot.memory_manager import MemoryManager
-from bot.relationship_manager import RelationshipManager
 from bot.telegram_handlers import RoleplayBot
-from bot.time_manager import TimeManager
 from bot.world_manager import WorldManager
 from config import settings
 from web.app import AppContext, create_app

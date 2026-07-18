@@ -23,11 +23,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
-from urllib.parse import urlparse, urlunparse
 
 import requests
 import yaml
-from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -518,14 +516,6 @@ class LLMRouter:
         })
         return "recorded"
 
-    def _mark_exhausted(self, name: str) -> None:
-        """标记 provider 为额度耗尽（永久跳过）。"""
-        self._update_provider_state(name, {
-            "exhausted": True,
-            "consecutive_failures": 0,
-            "cooldown_until": None,
-        })
-
     def _clear_exhausted(self, name: str) -> None:
         """清除 exhausted 标记。"""
         self._update_provider_state(name, {
@@ -641,8 +631,8 @@ class LLMRouter:
         """启用 provider 并清除所有负面状态。返回是否成功。"""
         if name not in self._providers_by_name:
             return False
-        # 修改 providers.yaml 中的 enabled 字段
-        self._set_config_enabled(name, True)
+        if not self._set_config_enabled(name, True):
+            return False
         self._clear_exhausted(name)
         logger.info("Provider %s enabled and state cleared", name)
         return True
@@ -651,51 +641,55 @@ class LLMRouter:
         """禁用 provider。返回是否成功。"""
         if name not in self._providers_by_name:
             return False
-        self._set_config_enabled(name, False)
+        if not self._set_config_enabled(name, False):
+            return False
         logger.info("Provider %s disabled", name)
         return True
 
-    def _set_config_enabled(self, name: str, enabled: bool) -> None:
-        """修改 providers.yaml 中某个 provider 的 enabled 字段（原子写入，线程安全）。"""
-        path = _providers_yaml_path()
-        if not path.exists():
-            return
-        with _providers_config_lock:
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if not data or "providers" not in data:
-                    return
-                for p in data["providers"]:
-                    if p.get("name") == name:
-                        p["enabled"] = enabled
-                        break
-                # 原子写入（自动备份 + tmp + fsync + 校验 + replace）
-                from bot.safe_io import atomic_write_yaml
-                atomic_write_yaml(path, data)
-                # 立即重载
-                self._reload_providers()
-                self._load_and_merge_state()
-            except Exception as e:
-                logger.warning("Failed to update providers.yaml for %s: %s", name, e)
+    @staticmethod
+    def _read_providers_document(path: Path, *, allow_empty: bool = False) -> dict | None:
+        """读取并校验 providers.yaml 的最小结构。"""
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Failed to read providers.yaml: %s", exc)
+            return None
 
-    def save_providers_config(self, providers_list: list[dict]) -> bool:
-        """用新配置覆盖 providers.yaml（原子写入，带备份+校验，线程安全）。"""
+        if data is None and allow_empty:
+            return {"providers": []}
+        if not isinstance(data, dict) or not isinstance(data.get("providers"), list):
+            logger.warning("providers.yaml must contain a providers list")
+            return None
+        return data
+
+    def _persist_providers_document(self, path: Path, data: dict) -> bool:
+        """统一写入、重载并合并 Provider 运行状态。"""
+        from bot.safe_io import atomic_write_yaml
+        if not atomic_write_yaml(path, data):
+            return False
+        self._reload_providers()
+        self._load_and_merge_state()
+        return True
+
+    def _set_config_enabled(self, name: str, enabled: bool) -> bool:
+        """修改 providers.yaml 中某个 provider 的 enabled 字段（原子写入，线程安全）。"""
         path = _providers_yaml_path()
         if not path.exists():
             return False
         with _providers_config_lock:
             try:
-                data = {"providers": providers_list}
-                from bot.safe_io import atomic_write_yaml
-                atomic_write_yaml(path, data)
-                # 立即重载
-                self._reload_providers()
-                self._load_and_merge_state()
-                logger.info("providers.yaml saved and reloaded")
-                return True
+                data = self._read_providers_document(path)
+                if data is None:
+                    return False
+                for p in data["providers"]:
+                    if p.get("name") == name:
+                        p["enabled"] = enabled
+                        break
+                else:
+                    return False
+                return self._persist_providers_document(path, data)
             except Exception as e:
-                logger.warning("Failed to save providers.yaml: %s", e)
+                logger.warning("Failed to update providers.yaml for %s: %s", name, e)
                 return False
 
     def clear_provider_state(self, name: str) -> bool:
@@ -746,6 +740,8 @@ class LLMRouter:
         fallback_to = ""
         usage = None
         total_retries = 0
+        last_error: Exception | None = None
+        last_provider = "none"
 
         # 选择候选 provider 列表
         candidates = self._select_candidates(task_type)
@@ -756,12 +752,15 @@ class LLMRouter:
 
         # 逐个尝试
         for idx, p_name in enumerate(candidates):
+            last_provider = p_name
             provider_config = self._providers_by_name.get(p_name, {})
             provider_state = self._get_provider_state(p_name)
 
             # 跳过额度耗尽的
             if provider_state.get("exhausted"):
                 logger.debug("Provider %s is exhausted, skipping", p_name)
+                error_type = "provider_exhausted"
+                error_message = f"Provider {p_name} is exhausted"
                 continue
 
             # 跳过冷却中的
@@ -771,6 +770,8 @@ class LLMRouter:
                 if now_ts < cooldown_until:
                     remaining = int(cooldown_until - now_ts)
                     logger.debug("Provider %s in cooldown (%ds remaining), skipping", p_name, remaining)
+                    error_type = "provider_cooldown"
+                    error_message = f"Provider {p_name} is in cooldown ({remaining}s remaining)"
                     continue
                 else:
                     # 冷却已结束，自动恢复
@@ -784,6 +785,8 @@ class LLMRouter:
             api_key = os.getenv(api_key_env, "").strip() if api_key_env else ""
             if not api_key:
                 logger.debug("Provider %s has no API key (env: %s), skipping", p_name, api_key_env)
+                error_type = "missing_api_key"
+                error_message = f"Provider {p_name} has no configured API key"
                 continue
 
             # 如果是第一次不是首选，记录 fallback
@@ -806,7 +809,6 @@ class LLMRouter:
 
             # 尝试调用（含重试）
             success = False
-            last_error: Exception | None = None
             attempt_reply = ""
             attempt_finish = ""
 
@@ -907,7 +909,7 @@ class LLMRouter:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "task_type": task_type,
             "purpose": purpose,
-            "provider": candidates[-1] if candidates else "none",
+            "provider": last_provider,
             "model": "",
             "success": False,
             "max_tokens": max_tokens,
@@ -1024,20 +1026,7 @@ class LLMRouter:
             )
             response.raise_for_status()
             data = response.json()
-
-            if "choices" not in data or not data["choices"]:
-                raise ValueError(f"Provider {provider_name} 返回了空 choices")
-
-            choice = data["choices"][0]
-            message = choice.get("message", {})
-            reply = (message.get("content") or "").strip()
-
-            if not reply:
-                raise ValueError(f"Provider {provider_name} 返回了空回复")
-
-            finish_reason = choice.get("finish_reason", "stop")
-            usage = data.get("usage")
-            return reply, finish_reason, usage
+            return self._parse_provider_response(data, provider_name)
 
         except requests.exceptions.HTTPError as exc:
             # 特殊处理：如果是 thinking 字段导致的错误，移除 thinking 后重试一次
@@ -1060,15 +1049,26 @@ class LLMRouter:
                     )
                     response.raise_for_status()
                     data = response.json()
-                    choice = data["choices"][0]
-                    message = choice.get("message", {})
-                    reply = (message.get("content") or "").strip()
-                    if not reply:
-                        raise ValueError(f"Provider {provider_name} 返回了空回复（去掉thinking后）")
-                    finish_reason = choice.get("finish_reason", "stop")
-                    usage = data.get("usage")
-                    return reply, finish_reason, usage
+                    return self._parse_provider_response(data, provider_name)
             raise
+
+    @staticmethod
+    def _parse_provider_response(data: Any, provider_name: str) -> tuple[str, str, dict | None]:
+        """校验 OpenAI 兼容响应并提取正文、结束原因与用量。"""
+        if not isinstance(data, dict) or not data.get("choices"):
+            raise ValueError(f"Provider {provider_name} 返回了空 choices")
+
+        choice = data["choices"][0]
+        if not isinstance(choice, dict):
+            raise ValueError(f"Provider {provider_name} 返回了无效 choice")
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise ValueError(f"Provider {provider_name} 返回了无效 message")
+
+        reply = (message.get("content") or "").strip()
+        if not reply:
+            raise ValueError(f"Provider {provider_name} 返回了空回复")
+        return reply, choice.get("finish_reason", "stop"), data.get("usage")
 
     # ── 测试连接 ──
 
@@ -1305,9 +1305,8 @@ class LLMRouter:
             return False
         with _providers_config_lock:
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if not data or "providers" not in data:
+                data = self._read_providers_document(path)
+                if data is None:
                     return False
 
                 found = False
@@ -1327,10 +1326,8 @@ class LLMRouter:
                 if not found:
                     return False
 
-                from bot.safe_io import atomic_write_yaml
-                atomic_write_yaml(path, data)
-                self._reload_providers()
-                self._load_and_merge_state()
+                if not self._persist_providers_document(path, data):
+                    return False
                 logger.info("Provider '%s' edited: %s", name, [k for k in updates])
                 return True
             except Exception as e:
@@ -1353,15 +1350,9 @@ class LLMRouter:
                     logger.warning("Provider '%s' already exists, cannot add", name)
                     return False
 
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        data = yaml.safe_load(f)
-                except Exception:
-                    data = None
-                if not data:
-                    data = {"providers": []}
-                if "providers" not in data:
-                    data["providers"] = []
+                data = self._read_providers_document(path, allow_empty=True)
+                if data is None:
+                    return False
 
                 from bot.utils import normalize_base_url
                 new_p = {
@@ -1383,10 +1374,8 @@ class LLMRouter:
 
                 data["providers"].append(new_p)
 
-                from bot.safe_io import atomic_write_yaml
-                atomic_write_yaml(path, data)
-                self._reload_providers()
-                self._load_and_merge_state()
+                if not self._persist_providers_document(path, data):
+                    return False
                 logger.info("Provider '%s' added", name)
                 return True
             except Exception as e:
@@ -1400,9 +1389,8 @@ class LLMRouter:
             return False
         with _providers_config_lock:
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                if not data or "providers" not in data:
+                data = self._read_providers_document(path)
+                if data is None:
                     return False
 
                 original_count = len(data["providers"])
@@ -1411,10 +1399,8 @@ class LLMRouter:
                 if len(data["providers"]) == original_count:
                     return False  # 没找到
 
-                from bot.safe_io import atomic_write_yaml
-                atomic_write_yaml(path, data)
-                self._reload_providers()
-                self._load_and_merge_state()
+                if not self._persist_providers_document(path, data):
+                    return False
                 logger.info("Provider '%s' deleted", name)
                 return True
             except Exception as e:

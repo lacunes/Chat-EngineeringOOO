@@ -14,9 +14,10 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -48,7 +49,8 @@ _MAX_BACKUPS = 20
 
 
 def _backup_timestamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    # 微秒避免同一秒内连续写入覆盖上一份备份。
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
 
 def backup_file(path: Path, backup_dir: Path | None = None) -> Path | None:
@@ -86,124 +88,116 @@ def backup_file(path: Path, backup_dir: Path | None = None) -> Path | None:
         return None
 
 
-def atomic_write_text(path: Path, content: str, backup: bool = True) -> bool:
-    """原子写入文本文件。
-
-    1. 备份旧文件（可选）
-    2. 写入 .tmp 临时文件
-    3. flush + fsync
-    4. os.replace 替换
-    """
-    if backup:
-        backup_file(path)
-
-    tmp = None
+def _atomic_write_content(
+    path: Path,
+    content: str,
+    *,
+    backup: bool,
+    backup_dir: Path | None,
+    suffix: str,
+    label: str,
+    validator: Callable[[str], None] | None = None,
+) -> bool:
+    """共享的 tmp → fsync → validate → replace 写入骨架。"""
+    tmp_path: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        import tempfile
+        if backup:
+            backup_file(path, backup_dir)
+
         with tempfile.NamedTemporaryFile(
-            mode="w", dir=str(path.parent), prefix=".tmp_", suffix=path.suffix,
-            delete=False, encoding="utf-8",
-        ) as f:
-            tmp = f.name
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, path)
+            mode="w",
+            dir=str(path.parent),
+            prefix=".tmp_",
+            suffix=suffix,
+            delete=False,
+            encoding="utf-8",
+        ) as file:
+            tmp_path = Path(file.name)
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+
+        if validator:
+            validator(tmp_path.read_text(encoding="utf-8"))
+
+        os.replace(tmp_path, path)
+        tmp_path = None
         return True
     except Exception as exc:
-        logger.error("atomic_write_text failed for %s: %s", path, exc)
-        if tmp:
-            try:
-                os.remove(tmp)
-            except Exception:
-                pass
+        logger.error("atomic_write_%s failed for %s: %s", label, path, exc)
         return False
+    finally:
+        if tmp_path:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def atomic_write_text(
+    path: Path,
+    content: str,
+    backup: bool = True,
+    backup_dir: Path | None = None,
+) -> bool:
+    """原子写入文本，可为旧文件指定专用备份目录。"""
+    return _atomic_write_content(
+        path,
+        content,
+        backup=backup,
+        backup_dir=backup_dir,
+        suffix=path.suffix,
+        label="text",
+    )
 
 
 def atomic_write_json(path: Path, data: Any, backup: bool = True) -> bool:
-    """原子写入 JSON 文件（写入后校验格式）。
-
-    流程：dump → .tmp → flush+fsync → 重读校验 → replace
-    """
-    if backup:
-        backup_file(path)
-
-    tmp = None
+    """原子写入 JSON 文件（写入后重读校验格式）。"""
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        import tempfile
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=str(path.parent), prefix=".tmp_", suffix=".json",
-            delete=False, encoding="utf-8",
-        ) as f:
-            tmp = f.name
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-
-        # 校验：重读临时文件
-        try:
-            with open(tmp, "r", encoding="utf-8") as vf:
-                json.load(vf)
-        except json.JSONDecodeError as ve:
-            logger.error("JSON validation failed for %s: %s — not replacing", path, ve)
-            os.remove(tmp)
-            return False
-
-        os.replace(tmp, path)
-        return True
-    except Exception as exc:
+        content = json.dumps(data, ensure_ascii=False, indent=2)
+    except (TypeError, ValueError) as exc:
         logger.error("atomic_write_json failed for %s: %s", path, exc)
-        if tmp:
-            try:
-                os.remove(tmp)
-            except Exception:
-                pass
         return False
+
+    def validate_json(text: str) -> None:
+        json.loads(text)
+
+    return _atomic_write_content(
+        path,
+        content,
+        backup=backup,
+        backup_dir=None,
+        suffix=".json",
+        label="json",
+        validator=validate_json,
+    )
 
 
 def atomic_write_yaml(path: Path, data: Any, backup: bool = True) -> bool:
-    """原子写入 YAML 文件（写入后校验格式）。
-
-    流程：dump → .tmp → flush+fsync → safe_load 校验 → replace
-    """
-    if backup:
-        backup_file(path)
-
-    tmp = None
+    """原子写入 YAML 文件（写入后重读校验格式）。"""
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        import tempfile
-        with tempfile.NamedTemporaryFile(
-            mode="w", dir=str(path.parent), prefix=".tmp_", suffix=".yaml",
-            delete=False, encoding="utf-8",
-        ) as f:
-            tmp = f.name
-            yaml.dump(data, f, Dumper=_SafeStringDumper, allow_unicode=True, default_flow_style=False, sort_keys=False)
-            f.flush()
-            os.fsync(f.fileno())
-
-        # 校验：重读临时文件
-        try:
-            with open(tmp, "r", encoding="utf-8") as vf:
-                parsed = yaml.safe_load(vf)
-            if parsed is None:
-                logger.error("YAML validation failed for %s: parsed to None", path)
-                os.remove(tmp)
-                return False
-        except yaml.YAMLError as ye:
-            logger.error("YAML validation failed for %s: %s — not replacing", path, ye)
-            os.remove(tmp)
-            return False
-
-        os.replace(tmp, path)
-        return True
-    except Exception as exc:
+        content = yaml.dump(
+            data,
+            Dumper=_SafeStringDumper,
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+    except yaml.YAMLError as exc:
         logger.error("atomic_write_yaml failed for %s: %s", path, exc)
-        if tmp:
-            try:
-                os.remove(tmp)
-            except Exception:
-                pass
         return False
+
+    def validate_yaml(text: str) -> None:
+        if yaml.safe_load(text) is None:
+            raise ValueError("YAML parsed to None")
+
+    return _atomic_write_content(
+        path,
+        content,
+        backup=backup,
+        backup_dir=None,
+        suffix=".yaml",
+        label="yaml",
+        validator=validate_yaml,
+    )

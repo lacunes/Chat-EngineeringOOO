@@ -3,7 +3,7 @@
 import logging
 import os
 
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify
+from flask import Blueprint, render_template, request, url_for, jsonify
 
 from config import settings
 from web.app import _ctx, audit_log

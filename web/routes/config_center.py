@@ -7,9 +7,8 @@
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 
-from flask import Blueprint, render_template, request, redirect, url_for
+from flask import Blueprint, render_template, request, url_for
 
 from config import settings
 from web.app import _ctx, audit_log, _flash_redirect

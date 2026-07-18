@@ -7,10 +7,10 @@ import json
 import logging
 from pathlib import Path
 
-from flask import Blueprint, render_template, request, redirect, url_for
+from flask import Blueprint, render_template, request, url_for
 
 from config import settings
-from bot.story_state import StoryStateManager, DEFAULT_STORY_STATE
+from bot.story_state import StoryStateManager
 from web.app import _ctx, audit_log, _flash_redirect
 from web.routes.auth import login_required
 

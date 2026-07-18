@@ -5,7 +5,7 @@ import logging
 import yaml
 from pathlib import Path
 
-from flask import Blueprint, render_template, request, redirect, url_for
+from flask import Blueprint, render_template, request, url_for
 
 from config import settings
 from web.app import _ctx, audit_log
@@ -153,7 +153,7 @@ def save_world(name: str):
                                    source="yaml",
                                    error="\n".join(errors),
                                    ctx=_ctx())
-        _save_world_yaml(yaml_path, world_data)
+        save_world_yaml(yaml_path, world_data)
     except Exception as exc:
         logger.error("Failed to save world %s: %s", name, exc)
         fields_fallback = {k: v for k, v in new_values.items()}
@@ -241,7 +241,7 @@ def create_world():
 
     data["WORLD_NAME"] = new_name
     yaml_dest.parent.mkdir(parents=True, exist_ok=True)
-    _save_world_yaml(yaml_dest, data)
+    save_world_yaml(yaml_dest, data)
 
     audit_log("创建世界", new_name)
     logger.info("Web panel: created world YAML %s", new_name)
@@ -272,13 +272,13 @@ def copy_world(name: str):
         data["WORLD_NAME"] = copy_name
         yaml_dest = settings.BASE_DIR / "data" / "worlds" / f"{copy_name}.yaml"
         yaml_dest.parent.mkdir(parents=True, exist_ok=True)
-        _save_world_yaml(yaml_dest, data)
+        save_world_yaml(yaml_dest, data)
     elif json_src.exists():
         data = json.loads(json_src.read_text(encoding="utf-8"))
         data["WORLD_NAME"] = copy_name
         yaml_dest = settings.BASE_DIR / "data" / "worlds" / f"{copy_name}.yaml"
         yaml_dest.parent.mkdir(parents=True, exist_ok=True)
-        _save_world_yaml(yaml_dest, data)
+        save_world_yaml(yaml_dest, data)
     else:
         return _flash_redirect(url_for("worlds.list_worlds"),
                                f"世界 '{name}' 不存在", "error")
@@ -379,51 +379,26 @@ def _load_world_json(path: Path) -> dict[str, str]:
     return fields
 
 
-def _save_world_yaml(path: Path, data: dict) -> None:
+def save_world_yaml(path: Path, data: dict) -> None:
     """原子写入 YAML + 自动备份。
 
     1. 先生成 YAML 文本（长文本使用 | 块文本）
-    2. 写入临时文件
-    3. 校验能重新解析
-    4. 备份旧文件
-    5. 替换正式文件
+    2. 校验能重新解析
+    3. 委托 safe_io 备份并原子替换
     """
     yaml_text = _dump_world_yaml(data)
 
-    # 写入临时文件
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(yaml_text, encoding="utf-8")
-
-    # 校验
     try:
-        parsed = yaml.safe_load(tmp.read_text(encoding="utf-8"))
+        parsed = yaml.safe_load(yaml_text)
         if not isinstance(parsed, dict):
             raise ValueError("YAML 根节点必须是字典")
     except Exception as exc:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
         raise ValueError(f"YAML 校验失败: {exc}") from exc
 
-    # 备份旧文件
+    from bot.safe_io import atomic_write_text
     backup_dir = settings.BASE_DIR / "backups" / "worlds"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        try:
-            import shutil
-            backup_name = f"{path.stem}_{_backup_timestamp()}.yaml"
-            shutil.copy2(path, backup_dir / backup_name)
-        except Exception as exc:
-            logger.warning("Failed to backup %s: %s", path, exc)
-
-    # 原子替换
-    tmp.replace(path)
-
-
-def _backup_timestamp() -> str:
-    from datetime import datetime
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not atomic_write_text(path, yaml_text, backup_dir=backup_dir):
+        raise OSError(f"无法写入世界文件: {path}")
 
 
 def _dump_world_yaml(data: dict) -> str:
@@ -435,9 +410,7 @@ def _dump_world_yaml(data: dict) -> str:
     lines = []
     for key in FORM_FIELDS:
         value = data.get(key, "")
-        if not lines:
-            pass  # 第一个字段不需要前置空行
-        else:
+        if lines:
             lines.append("")
 
         if key == "WORLD_NAME":

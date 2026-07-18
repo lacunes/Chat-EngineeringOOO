@@ -16,8 +16,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
 
-import yaml
-
 from config import settings
 
 logger = logging.getLogger(__name__)

@@ -111,6 +111,7 @@ Telegram 命令菜单通过 `Application.post_init` 中的 `set_my_commands` 非
 - active_world 从 `data/runtime_state.json` 读取（优先于 .env）
 - Web 面板切换世界后下次聊天即时生效，无需重启 main.py
 - 检测 `data/worlds/<name>.yaml` 文件修改并自动热重载
+- 仓库内 YAML 是唯一权威副本；仅当 YAML 不存在时兼容读取 JSON-only 旧世界
 
 ### `bot/llm_router.py` — LLMRouter
 - **多供应商 LLM 路由器**
@@ -122,6 +123,7 @@ Telegram 命令菜单通过 `Application.post_init` 中的 `set_my_commands` 非
 - **模式管理**：auto/manual 模式通过 Web 面板切换
 - 记录 `logs/llm_usage.jsonl`
 - 持久化状态到 `data/provider_state.json`
+- Provider 配置 CRUD 共享同一条读取、校验、原子写入和热重载路径；损坏 YAML 会拒绝覆盖
 
 ### `bot/relationship_manager.py` — RelationshipManager（Phase 1+3 增强）
 - 管理角色间结构化关系数据（6 维度），是关系数据的**唯一权威源**
@@ -148,8 +150,9 @@ Telegram 命令菜单通过 `Application.post_init` 中的 `set_my_commands` 非
 - 用户消息关键词检测推进时间
 
 ### `bot/safe_io.py`
-- 通用原子写入（JSON/YAML/Text）
-- 自动备份 + 写入后校验 + 旧备份清理
+- JSON/YAML/Text 共享同一条 tmp → fsync → validate → replace 写入骨架
+- 自动备份 + 写入后校验 + 旧备份清理；高频写入使用微秒时间戳避免备份互相覆盖
+- MemoryManager、状态管理器、Provider 配置和 Web 世界编辑器均复用该入口
 
 ### `bot/utils.py`
 - 世界数据加载、对话格式化、回复分段、敏感信息过滤

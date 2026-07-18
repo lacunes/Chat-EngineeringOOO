@@ -1,5 +1,8 @@
 # 日常运维
 
+本文件的启动、tmux 与 systemd 章节面向 Linux 服务器；本地开发默认使用
+Windows 11 + PowerShell 7，测试命令见下文“本地回归测试”。
+
 ## 启动与停止
 
 ### 手动启动 bot
@@ -118,11 +121,30 @@ tail -f logs/health_watch.log
 ### 世界数据文件位置
 
 世界数据现在使用 `data/worlds/*.yaml`（YAML 格式，手动编辑友好）。
-旧 `data/worlds/*.json` 仍可兼容读取（过渡期），但 Web 面板保存时会写入 `.yaml`。
+仓库内不再为同一世界保留 JSON/YAML 双份副本。仅有 JSON 的旧世界仍可兼容读取，
+但 YAML 一旦存在就作为唯一权威来源。
 `worlds/*.py` 已废弃删除，不再使用。
 
 手动编辑世界时请直接编辑 `data/worlds/<世界名>.yaml`。
 长文本字段（START_SCENE、SYSTEM_PROMPT）使用 YAML `|` 块文本格式，支持直接换行。
+
+迁移 JSON-only 旧世界：
+
+```powershell
+python scripts/migrate_to_yaml.py
+```
+
+脚本默认跳过已有 YAML。确需覆盖时使用 `--overwrite`；覆盖前会备份旧 YAML 到
+`backups/worlds/`。
+
+### 本地回归测试
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'
+python -m pytest -q -p no:cacheprovider
+```
+
+测试应全部使用临时目录，不应改写 `data/provider_state.json`、真实世界文件或 `.env`。
 
 ### 记忆文件位置（v3）
 

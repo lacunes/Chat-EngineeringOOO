@@ -3,9 +3,8 @@
 import json
 import logging
 
-from flask import Blueprint, render_template, request, redirect, url_for
+from flask import Blueprint, render_template, request, url_for
 
-from config import settings
 from web.app import _ctx, audit_log
 from web.routes.auth import login_required
 from web.app import _flash_redirect

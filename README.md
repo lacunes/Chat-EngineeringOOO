@@ -134,9 +134,10 @@ project/
 ├── deploy/
 │   └── chat-engineering.service # systemd unit 示例（通过 .env 注入环境变量）
 ├── scripts/
-│   └── health_watch.sh          # 本地健康诊断脚本，不自动杀进程
+│   ├── health_watch.sh          # 本地健康诊断脚本，不自动杀进程
+│   └── migrate_to_yaml.py       # JSON-only 旧世界安全迁移工具
 ├── data/
-│   ├── worlds/                 # 世界数据（YAML 格式）
+│   ├── worlds/                 # 世界数据（仓库内以 YAML 为唯一权威格式）
 │   ├── sessions/               # 短期记忆（{world}_chat.json）
 │   ├── memory/                 # 长期记忆（{world}_memories.json）+ 摘要
 │   ├── runtime_state.json      # 运行时状态
@@ -151,6 +152,9 @@ project/
 ├── .env.example
 └── README.md
 ```
+
+仓库不再同时保存同一世界的 JSON/YAML 双份副本。加载器仍兼容仅有 JSON 的旧世界；
+可运行 `python scripts/migrate_to_yaml.py` 生成 YAML，已有 YAML 默认不会被覆盖。
 
 ---
 
@@ -196,7 +200,8 @@ data/state/{world}_story_state.json    — 剧情运行状态
 
 ## 数据安全
 
-- 所有记忆文件使用**原子写入**（tmp + flush + fsync + os.replace）
+- 记忆、运行状态、Provider 配置和 Web 世界保存统一使用**原子写入**
+  （tmp + flush + fsync + 校验 + os.replace）
 - 写入前**自动备份**到 `backups/` 目录
 - JSON 损坏时不覆盖原文件，创建损坏备份
 - 内容去重：相同/高度相似的内容自动合并
@@ -297,6 +302,17 @@ Web 面板定位为 **"角色扮演导演台"**。
 | WEB_SESSION_SECRET | Web 会话独立签名密钥；公网监听时必须设置，不能复用登录密码 |
 
 完整配置项见 `config/settings.py` 注释。
+
+## 本地开发与测试
+
+Windows 11 + PowerShell 7：
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'
+python -m pytest -q -p no:cacheprovider
+```
+
+测试必须使用临时目录隔离 Provider 状态、世界文件和备份，不能写入 `data/` 运行状态。
 
 ---
 

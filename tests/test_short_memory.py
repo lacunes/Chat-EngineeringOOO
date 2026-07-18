@@ -8,7 +8,6 @@
 """
 import json
 import os
-import secrets
 import tempfile
 
 import pytest

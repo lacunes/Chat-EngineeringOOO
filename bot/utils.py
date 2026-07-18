@@ -1,5 +1,7 @@
 import json
+import os
 import random
+import re
 from types import SimpleNamespace
 
 import yaml
@@ -10,7 +12,8 @@ from config import settings
 def load_world(name: str):
     """加载世界数据。
 
-    优先级：data/worlds/<name>.yaml → data/worlds/<name>.json → 报错。
+    优先级：data/worlds/<name>.yaml → JSON-only 旧世界 → 报错。
+    YAML 一旦存在即为权威来源；解析失败时不会回退到可能陈旧的 JSON。
     不再支持 worlds/<name>.py 旧格式。
     """
     safe_name = name.strip().lower()
@@ -24,24 +27,22 @@ def load_world(name: str):
     if yaml_path.exists():
         try:
             data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("YAML 根节点必须是字典")
             return SimpleNamespace(**data)
         except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning(
-                "Failed to load world YAML %s, trying JSON: %s", yaml_path, exc
-            )
+            raise ValueError(f"Failed to load world YAML {yaml_path}: {exc}") from exc
 
     # 2. JSON 兜底（过渡期兼容）
     json_path = data_dir / f"{safe_name}.json"
     if json_path.exists():
         try:
             data = json.loads(json_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("JSON 根节点必须是字典")
             return SimpleNamespace(**data)
         except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning(
-                "Failed to load world JSON %s: %s", json_path, exc
-            )
+            raise ValueError(f"Failed to load legacy world JSON {json_path}: {exc}") from exc
 
     raise FileNotFoundError(
         f"世界 '{safe_name}' 不存在（找不到 {yaml_path} 或 {json_path}）"
@@ -98,6 +99,12 @@ def parse_memory_json(text: str) -> list:
 _GARBAGE_PATTERNS = frozenset({
     "```json", "```", "[", "]", "{", "}", "},", ",",
 })
+_VALID_MEMORY_TAG_RE = re.compile(
+    r"\[(?:hard_fact|relationship|plot_fact|character_state"
+    r"|user_preference|temporary_state|world_state|legacy"
+    r"|fact|event|promise|preference|secret|goal|scene_state)\]"
+)
+_HAS_TEXT_RE = re.compile(r'[a-zA-Z一-鿿぀-ゟ゠-ヿ]')
 
 
 def parse_memory_items(raw: str) -> list[str]:
@@ -112,14 +119,6 @@ def parse_memory_items(raw: str) -> list[str]:
     6. 去重
     7. 只保留包含分类标签或有明确正文的句子
     """
-    import re
-
-    _VALID_MEMORY_TAG = re.compile(
-        r"\[(?:hard_fact|relationship|plot_fact|character_state"
-        r"|user_preference|temporary_state|world_state|legacy"
-        r"|fact|event|promise|preference|secret|goal|scene_state)\]"
-    )
-
     text = raw.strip()
 
     # 1. 去除代码块包裹
@@ -172,12 +171,12 @@ def parse_memory_items(raw: str) -> list[str]:
             continue
 
         # 纯符号行（没有字母、中文或日文）
-        has_content = bool(re.search(r'[a-zA-Z一-鿿぀-ゟ゠-ヿ]', stripped))
+        has_content = bool(_HAS_TEXT_RE.search(stripped))
         if not has_content:
             continue
 
         # 过短无意义行（< 6 字符且无分类标签）
-        if len(stripped) < 6 and not _VALID_MEMORY_TAG.search(stripped):
+        if len(stripped) < 6 and not _VALID_MEMORY_TAG_RE.search(stripped):
             continue
 
         lines.append(stripped)
@@ -188,14 +187,6 @@ def parse_memory_items(raw: str) -> list[str]:
 
 def _filter_valid_memories(items: list[str]) -> list[str]:
     """过滤：只保留包含分类标签或有明确正文的条目。"""
-    import re
-
-    _VALID_MEMORY_TAG = re.compile(
-        r"\[(?:hard_fact|relationship|plot_fact|character_state"
-        r"|user_preference|temporary_state|world_state|legacy"
-        r"|fact|event|promise|preference|secret|goal|scene_state)\]"
-    )
-
     result = []
     seen = set()
     for item in items:
@@ -207,13 +198,13 @@ def _filter_valid_memories(items: list[str]) -> list[str]:
             continue
 
         # 包含有效分类标签 → 直接保留
-        if _VALID_MEMORY_TAG.search(item):
+        if _VALID_MEMORY_TAG_RE.search(item):
             seen.add(item)
             result.append(item)
             continue
 
         # 没有标签但有中英文正文（>= 15 字符）→ 保留
-        has_text = bool(re.search(r'[a-zA-Z一-鿿぀-ゟ゠-ヿ]', item))
+        has_text = bool(_HAS_TEXT_RE.search(item))
         if has_text and len(item) >= 15:
             seen.add(item)
             result.append(item)
@@ -264,9 +255,6 @@ def filter_sensitive(text: str) -> str:
     以及 sk- 开头的 key、Bearer token、Authorization header。
     所有日志展示、Web 异常页、Provider 测试错误都必须调用此函数。
     """
-    import os
-    import re
-
     if not text or not isinstance(text, str):
         return text
 
@@ -290,7 +278,6 @@ def filter_sensitive(text: str) -> str:
     try:
         yaml_path = settings.BASE_DIR / "providers.yaml"
         if yaml_path.exists():
-            import yaml
             data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 for p in data.get("providers", []):

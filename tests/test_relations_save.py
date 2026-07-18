@@ -10,8 +10,6 @@ import secrets
 import tempfile
 from copy import deepcopy
 
-import pytest
-
 
 def _create_test_app():
     """创建带测试数据的 Flask 应用，返回 (app, stub_rm, relations_path)。"""

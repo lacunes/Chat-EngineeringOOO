@@ -15,7 +15,6 @@ context_selector — 动态上下文选择器。
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger("bot.context")
 

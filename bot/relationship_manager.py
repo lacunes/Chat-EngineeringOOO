@@ -640,15 +640,6 @@ def _parse_relation_json(text: str) -> list:
     return []
 
 
-def _snapshot_relations(relations: dict) -> dict[str, dict]:
-    """对当前关系取快照，仅保存 6 个维度的值。"""
-    dims = ["affection", "trust", "fear", "dependence", "suspicion", "hostility"]
-    snap: dict[str, dict] = {}
-    for key, rel in relations.items():
-        snap[key] = {d: rel.get(d, 0) for d in dims}
-    return snap
-
-
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 

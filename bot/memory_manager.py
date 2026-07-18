@@ -1,9 +1,6 @@
 import json
 import logging
-import os
 import re
-import shutil
-import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +26,7 @@ _LONG_MEMORY_SIGNAL_KEYWORDS = {
 _VALID_CATEGORIES = {
     "hard_fact", "relationship", "plot_fact", "user_preference",
     "temporary_state", "character_state", "world_state",
+    "fact", "event", "promise", "preference", "secret", "goal", "scene_state",
     "legacy",  # 旧记忆兼容标签
 }
 
@@ -125,13 +123,6 @@ class MemoryManager:
         """以旧格式文本列表的形式访问长期记忆（向后兼容）。"""
         return self._store.to_text_list(limit=settings.LONG_MEMORY_MAX_ITEMS + 20)
 
-    @long_memory.setter
-    def long_memory(self, value: list[str]) -> None:
-        """从旧格式文本列表设置长期记忆（仅 reset 使用）。"""
-        # 这个 setter 仅用于兼容旧代码中的 reset 等操作
-        # 正常情况下不应直接赋值
-        pass
-
     @property
     def long_memory_count(self) -> int:
         """活跃长期记忆数量。"""
@@ -168,8 +159,9 @@ class MemoryManager:
         if self._old_chat_path.exists() and not self._chat_path.exists():
             try:
                 data = json.loads(self._old_chat_path.read_text(encoding="utf-8"))
-                self._chat_path.parent.mkdir(parents=True, exist_ok=True)
-                self._chat_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+                from bot.safe_io import atomic_write_json
+                if not atomic_write_json(self._chat_path, data, backup=False):
+                    raise OSError(f"Unable to persist migrated memory to {self._chat_path}")
                 logger.info("Migrated short memory: %s → %s", self._old_chat_path, self._chat_path)
                 self._was_recovered = True
             except Exception as exc:
@@ -542,6 +534,7 @@ class MemoryManager:
         result = self._atomic_write(path, data, label, force)
         if result is False:
             self._empty_protection_triggered = True
+        if result is not True:
             self._last_save_ok = False
         else:
             self._last_save_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -579,8 +572,7 @@ class MemoryManager:
         """原子写入 + 自动备份 + 空数据保护。
 
         1. 如果 data 为空 list 且旧文件非空且 force=False → 拒绝覆盖，记录警告
-        2. 备份旧文件到 backups/memory_时间戳.json
-        3. 先写 .tmp，再 os.replace（原子操作）
+        2. 委托 safe_io 执行备份、校验和原子替换
         
         Returns:
             True: 成功写入
@@ -602,51 +594,12 @@ class MemoryManager:
                 except Exception:
                     pass
 
-        tmp = None
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-
-            # ── 备份旧文件 ──
-            MemoryManager._backup_file(path)
-
-            with tempfile.NamedTemporaryFile(
-                mode="w", dir=str(path.parent), prefix=".tmp_", suffix=".json",
-                delete=False, encoding="utf-8",
-            ) as file:
-                tmp = file.name
-                json.dump(data, file, ensure_ascii=False, indent=2)
-                file.flush()
-                os.fsync(file.fileno())
-            os.replace(tmp, path)
-            return True
+            from bot.safe_io import atomic_write_json
+            return True if atomic_write_json(path, data) else None
         except Exception as exc:
             logger.error("Failed to save %s: %s", label, exc)
-            if tmp:
-                try:
-                    os.remove(tmp)
-                except Exception:
-                    pass
-
-    @staticmethod
-    def _backup_file(path: Path) -> None:
-        """备份文件到 backups/ 目录。"""
-        if not path.exists():
-            return
-        try:
-            backup_dir = path.parent.parent / "backups"
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_name = f"memory_{path.stem}_{ts}.json"
-            shutil.copy2(path, backup_dir / backup_name)
-            # 只保留最近 20 个备份
-            existing = sorted(backup_dir.glob(f"memory_{path.stem}_*.json"))
-            for old_backup in existing[:-20]:
-                try:
-                    old_backup.unlink()
-                except Exception:
-                    pass
-        except Exception as exc:
-            logger.warning("Failed to backup %s: %s", path, exc)
+            return None
 
     # ── 记忆状态查询（供 Web 面板使用）──
 
